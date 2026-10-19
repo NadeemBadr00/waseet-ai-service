@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>بيبو — صاحب موقعك الصغير</title>
+  <link rel="stylesheet" href="preview.css?v=4">
+  <script defer src="robot.js?v=4"></script>
+  <script defer src="preview.js?v=4"></script>
+  <script defer src="bebo-chat.js?v=7-platform"></script>
+</head>
+<body>
+<main class="wrap">
+  <header><div class="brand"><span class="brand-icon" aria-hidden="true"></span> BEBO</div><span class="edition">LITTLE ROBOT. BIG PERSONALITY.</span></header>
+  <section class="intro"><div><p class="eyebrow">بيبو بقى بيتكلم معاك</p><h1>كلّمه. اسأله. خلّيه يتحرّك.</h1><p class="sub">صاحبك الصغير بيسمع أوامرك، ويردّ عليك بصوت وكتابة على لهجتك.</p></div><div class="live"><span class="dot"></span>رفيقك الصغير · النسخة ٤</div></section>
+  <section class="studio" aria-label="جرّب شخصية بيبو">
+    <div class="stage grid" id="stage">
+      <span class="stage-meta">BEBO / 04</span><span class="stage-tag">مساحة اللعب</span>
+      <p class="speech" id="speech" aria-live="polite">أهلًا! أنا بيبو 👋</p>
+      <div class="playground" id="playground"><cute-robot id="hero" size="208" state="idle" interactive movable label="بيبو"></cute-robot></div>
+      <div class="floor" aria-hidden="true"></div><p class="hint">اسحبه وسيبه… أو قرّب الماوس وخليه ينط.</p>
+    </div>
+    <aside class="controls" aria-label="إعدادات الشخصية">
+      <div class="control-group"><span class="section-label">مزاجه دلوقتي</span>
+        <div class="state-buttons">
+          <button class="state-btn" data-state="walk" aria-pressed="false"><span class="icon" aria-hidden="true">↔</span>يمشي</button>
+          <button class="state-btn" data-state="typing" aria-pressed="false"><span class="icon" aria-hidden="true">⌨</span>يكتب</button>
+          <button class="state-btn" data-state="jump" aria-pressed="false"><span class="icon" aria-hidden="true">↑</span>ينط</button>
+          <button class="state-btn" data-state="rest" aria-pressed="false"><span class="icon" aria-hidden="true">ᴗ</span>يرتاح</button>
+          <button class="state-btn" data-state="idle" aria-pressed="true"><span class="icon" aria-hidden="true">•‿•</span>هادي</button>
+          <button class="state-btn" data-state="wave" aria-pressed="false"><span class="icon" aria-hidden="true">\o</span>بيسلّم</button>
+          <button class="state-btn" data-state="happy" aria-pressed="false"><span class="icon" aria-hidden="true">^ᴗ^</span>فرحان</button>
+          <button class="state-btn" data-state="thinking" aria-pressed="false"><span class="icon" aria-hidden="true">•_•</span>بيفكّر</button>
+          <button class="state-btn" data-state="blink" aria-pressed="false"><span class="icon" aria-hidden="true">−‿−</span>بيرمش</button>
+          <button class="state-btn" data-state="sleep" aria-pressed="false"><span class="icon" aria-hidden="true">zZ</span>نعسان</button>
+        </div>
+      </div>
+      <div class="control-group"><label class="roam-label"><input id="roam" type="checkbox"> يتحرّك من نفسه</label><div class="size-row"><label for="size" class="section-label">حجم الشخصية</label><output id="size-value" for="size">208 px</output></div><input id="size" type="range" min="64" max="256" value="208" step="16"></div>
+      <div class="control-group"><div class="background-row"><span class="section-label">جرّبه على خلفية</span><div class="swatches"><button class="swatch dark" data-theme="dark" aria-label="خلفية غامقة" aria-pressed="false"></button><button class="swatch light" data-theme="light" aria-label="خلفية فاتحة" aria-pressed="false"></button><button class="swatch check" data-theme="grid" aria-label="خلفية مربعات" aria-pressed="true"></button></div></div><button class="pause" id="pause" aria-pressed="false">إيقاف الحركة مؤقتًا</button></div>
+    </aside>
+  </section>
+  <section class="voice-demo"><div><span class="eyebrow">صوتك يوصل… وبيبو يرد</span><h2>قول له «انط» وشوفه بيتحرّك.</h2><p>مصري، سعودي، خليجي، فصحى أو إنجليزي. اختار لهجتك أو سيب بيبو يقدّرها من كلامك.</p></div><button class="talk-button" id="talk-bebo">اتكلم مع بيبو ↗</button></section>
+  <section class="antics-demo" aria-label="حركات بيبو اللطيفة"><div><b>كل شوية له حركة!</b><p>جرّبها هنا أو اطلبها منه في الشات.</p></div><div class="antics-buttons"><button class="state-btn" data-state="laugh" aria-pressed="false">يضحك 😄</button><button class="state-btn" data-state="cry" aria-pressed="false">يعيّط جامد 😭</button><button class="state-btn" data-state="plead" aria-pressed="false">عيون قطط 🥺</button><button class="state-btn" data-state="chase" aria-pressed="false">يجري ورا القطة 🐈</button><button class="state-btn" data-state="scratch" aria-pressed="false">يهرش راسه</button><button class="state-btn" data-state="dance" aria-pressed="false">يرقص ♫</button><button class="state-btn" data-state="fly" aria-pressed="false">يمسك دبّانة</button></div></section>
+  <section class="typing-demo"><div><b>خلّيه يشتغل معاك</b><p>اكتب أي حاجة، هيطلع اللابتوب ويكتب.</p></div><label class="sr-only" for="typing-demo">جرّب الكتابة مع بيبو</label><input id="typing-demo" type="text" placeholder="ابدأ كتابة هنا…" autocomplete="off"><button class="small-btn" id="reset-position">رجّعه مكانه</button></section>
+  <div class="details-row"><div class="detail"><span class="num">24</span><div><b>حالة وحركة</b><span>ضحك، عياط، رقص، وقطة</span></div></div><div class="detail"><span class="num">↗</span><div><b>يتفاعل معاك</b><span>ماوس ولمس ولوحة مفاتيح</span></div></div><div class="detail"><span class="num">&lt;/&gt;</span><div><b>جاهز لموقعك</b><span>من غير مكتبات إضافية</span></div></div></div>
+  <details><summary>ركّب بيبو في موقعك</summary><div class="install"><p>الشات والصوت يعملان بجلسة مستخدم وسيط عبر باك المنصة. حركات الشخصية متاحة للزوار:</p><pre id="snippet">&lt;script defer src="/bebo/robot.js"&gt;&lt;/script&gt;
+&lt;script defer src="/bebo/bebo-chat.js"&gt;&lt;/script&gt;
+&lt;cute-robot id="bebo" size="112" floating interactive floor-offset="110" home-x="116"&gt;&lt;/cute-robot&gt;
+&lt;bebo-chat robot="#bebo" api-base="/api/help-assistant"&gt;&lt;/bebo-chat&gt;</pre><div class="install-actions"><button id="copy" class="small-btn">نسخ الكود</button><a class="small-btn" href="README.md" download>دليل التركيب</a><a class="small-btn" href="robot-actions.png" download>رسومات الحركات الجديدة</a></div><p>الحركة بتقل تلقائيًا لو الزائر مفعّل تقليل الحركة على جهازه. الأسهم بتحرّكه، والسهم لفوق بينطّطه.</p></div></details>
+  <div class="footer"><span>مصمّم عشان يضيف لمسة لطيفة لموقعك.</span><span dir="ltr">BEBO · PIXEL COMPANION · V4</span></div>
+</main>
+<cute-robot id="mini" size="112" floating interactive floor-offset="110" home-x="116" label="بيبو الصغير"></cute-robot>
+<bebo-chat id="chat" robot="#mini" robots="#mini,#hero" api-base="/api/help-assistant"></bebo-chat>
+<button class="mini-toggle" id="toggle-mini" aria-pressed="true">إخفاء الروبوت الصغير</button>
+</body>
+</html>

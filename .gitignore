@@ -1,0 +1,7 @@
+
+.env.local
+.env.ai-local
+work/ai-state/
+work/developer-knowledge.jsonl
+work/developer-knowledge-report.json
+work/developer-knowledge*.tmp-*

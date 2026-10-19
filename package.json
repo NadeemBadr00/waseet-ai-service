@@ -1,0 +1,39 @@
+{
+  "name": "waseet-ai-service",
+  "version": "1.0.0",
+  "description": "WaseetAI Standalone Backend Microservice",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "dev:local": "node --env-file=.env.local --import tsx src/server.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts"
+  },
+  "keywords": [
+    "waseet",
+    "ai",
+    "gemini",
+    "fastify",
+    "microservice"
+  ],
+  "author": "Waseet Engineering Team",
+  "license": "ISC",
+  "dependencies": {
+    "@babel/parser": "^8.0.7",
+    "fastify": "^5.12.5",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.4.299",
+    "saxes": "^6.0.0",
+    "socket.io": "^4.8.4",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "socket.io-client": "^4.8.4",
+    "tsx": "^4.23.15"
+  }
+}

@@ -1,0 +1,14 @@
+import type { FastifyPluginAsync } from "fastify";
+import { TtsSynthesizeInputSchema } from "./tts.types.js";
+import { TtsService } from "./tts.service.js";
+import { capabilities, clientSignal, openSse, writeSse } from "../../runtime/routes.js";
+import { classificationSchema } from "../../runtime/voice.js";
+
+const bodySchema = TtsSynthesizeInputSchema.extend({ classification: classificationSchema.default("PERSONAL") });
+export const ttsRoutes: FastifyPluginAsync = async fastify => {
+  fastify.get("/v1/ai/tts/catalog", async (_request, reply) => { const catalog = TtsService.getVoicesCatalog(), available = capabilities(); return reply.header("Cache-Control", "private, no-store").send({ success: true, data: { ...catalog, models: catalog.models.filter(m => available.models.some(a => a.id === m.id)), voices: available.voices, defaultTtsModel: available.defaultTtsModel, inferenceVerified: false } }); });
+  fastify.post("/v1/ai/tts/synthesize", async (request, reply) => { const { classification, ...input } = bodySchema.parse(request.body), client = clientSignal(request, reply); try { const data = await TtsService.synthesize(input, { classification, signal: client.signal }); return reply.header("Cache-Control", "private, no-store").send({ success: true, data }); } finally { client.dispose(); } });
+  fastify.post("/v1/ai/tts/stream", async (request, reply) => { const { classification, ...input } = bodySchema.parse(request.body), client = clientSignal(request, reply); openSse(reply); try { await writeSse(reply, "start", { voice: input.voice, mimeType: "audio/l16", sampleRate: 24000, channels: 1, bitsPerSample: 16 }, client.signal); for await (const chunk of TtsService.streamSynthesis(input, { classification, signal: client.signal })) await writeSse(reply, "chunk", { chunk: chunk.chunkBase64, model: chunk.modelUsed, mimeType: chunk.mimeType, sampleRate: chunk.sampleRate }, client.signal); await writeSse(reply, "done", { status: "completed" }, client.signal); } catch (error) { if (!client.signal.aborted) await writeSse(reply, "error", { code: (error as { code?: string }).code ?? "AI_TTS_STREAM_FAILED", status: "failed" }, client.signal); } finally { client.dispose(); reply.raw.end(); } });
+  // Speech text must not be written into query URLs, access logs, browser history or a public cache.
+  fastify.post("/v1/ai/tts/speak", async (request, reply) => { const { classification, ...input } = bodySchema.parse(request.body), client = clientSignal(request, reply); try { const result = await TtsService.synthesize(input, { classification, signal: client.signal }), bytes = Buffer.from(result.audio.base64Audio, "base64"); return reply.type(result.audio.mimeType).header("Cache-Control", "private, no-store").header("Content-Length", bytes.length).send(bytes); } finally { client.dispose(); } });
+};

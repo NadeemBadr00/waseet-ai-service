@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WaseetAI - Interactive Playground & Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=12">
+    <script src="marked.min.js"></script>
+</head>
+<body>
+    <div class="console-shell" id="consoleShell">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon"></div>
+                    <span class="app-name">WaseetAI Console</span>
+                </div>
+            </div>
+            
+            <div class="sidebar-search">
+                <div class="search-input-wrapper">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                    <input type="text" id="featureSearch" placeholder="بحث في الخدمات (31 ميزة)...">
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#projects" class="nav-link active" data-tab="projects">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                    <span>مختبر المشاريع (Projects)</span>
+                </a>
+                <a href="#assessments" class="nav-link" data-tab="assessments">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span>الاختبارات والتصحيح (Assessments)</span>
+                </a>
+                <a href="#proposals" class="nav-link" data-tab="proposals">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+                    <span>العروض والمطابقة (Marketplace)</span>
+                </a>
+                <a href="#disputes" class="nav-link" data-tab="disputes">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span>النزاعات والصحة (Disputes & Health)</span>
+                </a>
+                <a href="#help" class="nav-link" data-tab="help">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                    <span>الدعم والـ Avatar (RAG & Speech)</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="plan-badge" id="poolBadge">Waseet AI Pro</div>
+                <button class="icon-button" id="collapseBtn" aria-label="Collapse sidebar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Workspace (Center) -->
+        <main class="workspace">
+            <div class="workspace-breadcrumb" id="breadcrumbBar">
+                <nav class="breadcrumb">
+                    <a href="#" class="breadcrumb__link">Waseet Platform</a>
+                    <svg class="breadcrumb__separator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+                    <a href="#" class="breadcrumb__link">AI Microservice</a>
+                    <svg class="breadcrumb__separator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+                    <span class="breadcrumb__current" id="breadcrumbSection">مختبر المشاريع</span>
+                </nav>
+            </div>
+
+            <header class="workspace-header" id="workspaceHeader">
+                <div class="header-content">
+                    <h1 id="headerTitle">مختبر خدمات المشاريع <span class="subtitle-counter" id="serverStatusBadge">Backend: Cloud Run Live 🟢</span></h1>
+                </div>
+                <div class="tabs" id="subTabsNav">
+                    <a href="#projects/stream" class="tab active" data-subtab="stream">وصف المشروع (Stream)</a>
+                    <a href="#projects/milestones" class="tab" data-subtab="milestones">المراحل (Milestones)</a>
+                    <a href="#projects/analysis" class="tab" data-subtab="analysis">تحليل الجدوى (Plan Analysis)</a>
+                    <a href="#projects/draft" class="tab" data-subtab="draft">مسودة مقترحة (Draft)</a>
+                </div>
+            </header>
+
+            <div class="workspace-content">
+                <!-- Panel 1: Projects -->
+                <section class="tab-panel active" id="panel-projects">
+                    <!-- Subpanel 1: Stream Description -->
+                    <div class="subpanel active" id="subpanel-stream">
+                        <div class="playground-grid">
+                            <div class="card form-card">
+                                <div class="card-header">
+                                    <h3>توليد وتحسين وصف المشروع (Live Stream)</h3>
+                                    <button class="btn btn-secondary btn-sm" id="presetBtn">بيانات تجريبية</button>
+                                </div>
+                                <div class="form-group"><label for="projectTitleInput">عنوان المشروع</label><input type="text" id="projectTitleInput" class="form-control" value="تطوير منصة وسيط للعمل الحر"></div>
+                                <div class="form-group">
+                                    <label for="projectModelTier">نموذج الذكاء الاصطناعي (Waseet AI Engine - High Performance)</label>
+                                    <select id="projectModelTier" class="form-control">
+                                        <optgroup label="التوجيه الذكي التلقائي (Smart Auto Router)">
+                                            <option value="AUTO" selected>Auto Smart Router (توجيه تلقائي ذكي وفائق السرعة)</option>
+                                        </optgroup>
+                                         <optgroup label="عائلة Waseet Turbo السريعة (Ultra Low Latency)">
+                                            <option value="waseet-turbo-3.1">Waseet Turbo Lite 3.1 (الأسرع استجابة واستقراراً)</option>
+                                            <option value="waseet-turbo-3.5">Waseet Turbo Lite 3.5 (فائق السرعة وخفيف المعالجة)</option>
+                                        </optgroup>
+                                        <optgroup label="عائلة Waseet Neural المتطورة (Advanced Neural Mode)">
+                                            <option value="waseet-neural-3.5">Waseet Neural Flash 3.5 (مستقر وفائق السرعة)</option>
+                                            <option value="waseet-neural-3.6">Waseet Neural Flash 3.6 (عالي الكفاءة والدقة)</option>
+                                            <option value="waseet-neural-3.7">Waseet Neural Flash 3.7 (محرك متقدم ونشط)</option>
+                                            <option value="waseet-ultra-3.8">Waseet Ultra Flash 3.8 (الأعلى ذكاءً وتحليلاً للمشاريع)</option>
+                                            <option value="waseet-global-2.5">Waseet Global Flash 2.5 (مستقر وعالمي)</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col"><label for="projectBudgetInput">الميزانية ($)</label><input type="number" id="projectBudgetInput" class="form-control" value="3000"></div>
+                                    <div class="form-group col"><label for="projectDurationInput">المدة (أيام)</label><input type="number" id="projectDurationInput" class="form-control" value="20"></div>
+                                </div>
+                                <div class="form-group"><label for="projectPromptInput">المدخلات أو المسودة</label><textarea id="projectPromptInput" class="form-control" rows="3">منصة عمل حر عربية متكاملة لربط العملاء بالمنفذين مع نظام دفع ومراحل تسليم.</textarea></div>
+                                <div class="form-actions">
+                                    <button class="btn btn-primary" id="runProjectActionBtn">بدء توليد الوصف (Stream)</button>
+                                    <div class="latency-indicator" id="latencyIndicator">جاهز</div>
+                                </div>
+                            </div>
+                            <div class="card result-card">
+                                <div class="card-header">
+                                    <h3>استجابة الذكاء الاصطناعي (AI Output)</h3>
+                                    <div style="display:flex;align-items:center;gap:8px;">
+                                        <button class="btn-copy-output" id="copyOutputBtn" title="نسخ المخرجات كـ Markdown">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                            <span id="copyBtnText">نسخ النص</span>
+                                        </button>
+                                        <span class="badge badge-success" id="streamBadge">جاهز</span>
+                                    </div>
+                                </div>
+                                <div class="stream-output-box" id="streamOutputBox">اضغط على زر التنفيذ لبدء البث التدفقي لايف بواسطة محرك Waseet AI...</div>
+                                <div class="json-inspector" id="streamInspector">
+                                    <div class="json-inspector-header">
+                                        <div style="display:flex;gap:6px;">
+                                            <button type="button" class="inspector-tab-btn" data-target="streamReq">المدخلات (Request JSON)</button>
+                                            <button type="button" class="inspector-tab-btn active" data-target="streamRes">المخرجات (Response JSON)</button>
+                                        </div>
+                                        <span class="inspector-toggle-label">سجل الـ Stream ▾</span>
+                                    </div>
+                                    <pre class="json-viewer is-req is-hidden" id="streamReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                    <pre class="json-viewer is-res" id="streamResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Subpanel 2: Milestones -->
+                    <div class="subpanel" id="subpanel-milestones" style="display:none;">
+                        <div class="playground-grid">
+                            <div class="card form-card">
+                                <div class="card-header">
+                                    <h3>تقسيم مراحل الدفع الآمن (Escrow Milestones)</h3>
+                                    <span class="badge badge-info">100% دقة مالية</span>
+                                </div>
+                                <div class="form-group"><label for="msTitleInput">عنوان المشروع</label><input type="text" id="msTitleInput" class="form-control" value="تطوير متجر وسيط إلكتروني"></div>
+                                <div class="form-row">
+                                    <div class="form-group col"><label for="msBudgetInput">الميزانية الإجمالية ($)</label><input type="number" id="msBudgetInput" class="form-control" value="4000"></div>
+                                    <div class="form-group col"><label for="msCurrencySelect">العملة</label><select id="msCurrencySelect" class="form-control"><option value="USD">USD ($)</option><option value="SAR">SAR (ر.س)</option><option value="EGP">EGP (ج.م)</option></select></div>
+                                </div>
+                                <div class="form-group"><label for="msDescInput">نطاق العمل ومواصفات المشروع</label><textarea id="msDescInput" class="form-control" rows="3">بناء متجر إلكتروني متعدد التجار مع بوابات دفع محلية ولوحة تحكم وتطبيق جوال.</textarea></div>
+                                <button class="btn btn-primary" id="runMilestonesBtn">حساب وتقسيم المراحل بنسب 100%</button>
+                            </div>
+                            <div class="card result-card">
+                                <div class="card-header">
+                                    <h3>جدول المراحل والدفعات المقترحة</h3>
+                                    <div style="display:flex;align-items:center;gap:8px;">
+                                        <span class="latency-indicator" id="msLatencyIndicator">جاهز</span>
+                                        <span class="badge" id="msBadge">جاهز</span>
+                                    </div>
+                                </div>
+                                <div id="milestonesOutputBox" class="stream-output-box">اضغط على زر الحساب لعرض جدول المراحل ونسب الدفع والمدد الزمنية...</div>
+                                <div class="json-inspector" id="msInspector">
+                                    <div class="json-inspector-header">
+                                        <div style="display:flex;gap:6px;">
+                                            <button type="button" class="inspector-tab-btn" data-target="msReq">المدخلات (Request JSON)</button>
+                                            <button type="button" class="inspector-tab-btn active" data-target="msRes">المخرجات (Response JSON)</button>
+                                        </div>
+                                        <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                    </div>
+                                    <pre class="json-viewer is-req is-hidden" id="msReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                    <pre class="json-viewer is-res" id="msResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Subpanel 3: Plan Analysis -->
+                    <div class="subpanel" id="subpanel-analysis" style="display:none;">
+                        <div class="playground-grid">
+                            <div class="card form-card">
+                                <div class="card-header">
+                                    <h3>فحص الجدوى والمخاطر الفنية (Plan Feasibility & Risks)</h3>
+                                    <span class="badge badge-warning">تدقيق ما قبل النشر</span>
+                                </div>
+                                <div class="form-group"><label for="anTitleInput">عنوان المشروع</label><input type="text" id="anTitleInput" class="form-control" value="تطبيق حجز رحلات سياحية ذكي"></div>
+                                <div class="form-row">
+                                    <div class="form-group col"><label for="anBudgetInput">الميزانية المرصودة ($)</label><input type="number" id="anBudgetInput" class="form-control" value="1500"></div>
+                                    <div class="form-group col"><label for="anDurationInput">المدة المستهدفة (أيام)</label><input type="number" id="anDurationInput" class="form-control" value="15"></div>
+                                </div>
+                                <div class="form-group"><label for="anDescInput">مسودة المتطلبات للتدقيق</label><textarea id="anDescInput" class="form-control" rows="3">نحتاج نظام حجز طيران وفنادق وربط مع 4 مزودي خدمات عالميين مع دعم الدفع بالعملات المشفرة وتطبيقات أندرويد و iOS.</textarea></div>
+                                <button class="btn btn-primary" id="runAnalysisBtn">فحص الجدوى والثغرات</button>
+                            </div>
+                            <div class="card result-card">
+                                <div class="card-header">
+                                    <h3>تقرير الجدوى ومؤشرات المخاطر</h3>
+                                    <div style="display:flex;align-items:center;gap:8px;">
+                                        <span class="latency-indicator" id="anLatencyIndicator">جاهز</span>
+                                        <span class="badge" id="anBadge">جاهز</span>
+                                    </div>
+                                </div>
+                                <div id="analysisOutputBox" class="stream-output-box">نتائج فحص الجدوى، درجة الوضوح، وملاحظات السوق ستظهر هنا...</div>
+                                <div class="json-inspector" id="anInspector">
+                                    <div class="json-inspector-header">
+                                        <div style="display:flex;gap:6px;">
+                                            <button type="button" class="inspector-tab-btn" data-target="anReq">المدخلات (Request JSON)</button>
+                                            <button type="button" class="inspector-tab-btn active" data-target="anRes">المخرجات (Response JSON)</button>
+                                        </div>
+                                        <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                    </div>
+                                    <pre class="json-viewer is-req is-hidden" id="anReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                    <pre class="json-viewer is-res" id="anResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Subpanel 4: Draft Suggestion -->
+                    <div class="subpanel" id="subpanel-draft" style="display:none;">
+                        <div class="playground-grid">
+                            <div class="card form-card">
+                                <div class="card-header">
+                                    <h3>مساعد صياغة المسودة الذكية (Request Draft Suggestion)</h3>
+                                    <span class="badge badge-info">للعملاء غير التقنيين</span>
+                                </div>
+                                <div class="form-group"><label for="draftSpecialtyInput">التخصص المطلوب</label><input type="text" id="draftSpecialtyInput" class="form-control" value="تطوير تطبيقات الهواتف الذكية"></div>
+                                <div class="form-group"><label for="draftPromptInput">اكتب فكرتك باختصار</label><textarea id="draftPromptInput" class="form-control" rows="4" placeholder="مثلاً: عايز تطبيق لغسيل السيارات متنقل يحجز أقرب فني للموقع ويدفع كاش أو فيزا...">تطبيق توصيل طلبات صيدليات من أقرب صيدلية للعميل في محيط 5 كم مع تتبع السائق.</textarea></div>
+                                <button class="btn btn-primary" id="runDraftBtn">اقتراح مسودة احترافية وميزانية</button>
+                            </div>
+                            <div class="card result-card">
+                                <div class="card-header">
+                                    <h3>المسودة والعنوان والميزانية المقترحة</h3>
+                                    <div style="display:flex;align-items:center;gap:8px;">
+                                        <span class="latency-indicator" id="draftLatencyIndicator">جاهز</span>
+                                        <span class="badge" id="draftBadge">جاهز</span>
+                                    </div>
+                                </div>
+                                <div id="draftOutputBox" class="stream-output-box">المسودة المقترحة مع الميزانية والمدة التقديرية ستظهر هنا...</div>
+                                <div class="json-inspector" id="draftInspector">
+                                    <div class="json-inspector-header">
+                                        <div style="display:flex;gap:6px;">
+                                            <button type="button" class="inspector-tab-btn" data-target="draftReq">المدخلات (Request JSON)</button>
+                                            <button type="button" class="inspector-tab-btn active" data-target="draftRes">المخرجات (Response JSON)</button>
+                                        </div>
+                                        <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                    </div>
+                                    <pre class="json-viewer is-req is-hidden" id="draftReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                    <pre class="json-viewer is-res" id="draftResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Panel 2: Assessments -->
+                <section class="tab-panel" id="panel-assessments">
+                    <div class="playground-grid">
+                        <div class="card form-card">
+                            <div class="card-header"><h3>توليد واختبار المهارات التقنية الحتمية</h3></div>
+                            <div class="form-group"><label for="assessmentSpecialtyInput">التخصص التقني</label><input type="text" id="assessmentSpecialtyInput" class="form-control" value="تطوير واجهات المستخدم React & TypeScript"></div>
+                            <div class="form-row">
+                                <div class="form-group col"><label for="questionCountInput">عدد الأسئلة</label><input type="number" id="questionCountInput" class="form-control" value="20"></div>
+                                <div class="form-group col"><label for="timeLimitInput">الوقت (دقيقة)</label><input type="number" id="timeLimitInput" class="form-control" value="15"></div>
+                            </div>
+                            <button class="btn btn-primary" id="generateExamBtn">بدء توليد الاختبار التخصصي (20 سؤال)</button>
+                        </div>
+                        <div class="card result-card">
+                            <div class="card-header">
+                                <h3>ورقة الامتحان التفاعلية والتصحيح</h3>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span class="latency-indicator" id="examLatencyIndicator">جاهز</span>
+                                    <span class="badge" id="examAttemptBadge">جاهز</span>
+                                </div>
+                            </div>
+                            <div id="examQuestionsContainer" class="exam-container">اضغط على زر التوليد لإنشاء أسئلة الامتحان التخصصية وتجربة حلها وتصحيحها حتمياً...</div>
+                            <div class="json-inspector" id="examInspector">
+                                <div class="json-inspector-header">
+                                    <div style="display:flex;gap:6px;">
+                                        <button type="button" class="inspector-tab-btn" data-target="examReq">المدخلات (Request JSON)</button>
+                                        <button type="button" class="inspector-tab-btn active" data-target="examRes">المخرجات (Response JSON)</button>
+                                    </div>
+                                    <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                </div>
+                                <pre class="json-viewer is-req is-hidden" id="examReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                <pre class="json-viewer is-res" id="examResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Panel 3: Proposals -->
+                <section class="tab-panel" id="panel-proposals">
+                    <div class="playground-grid">
+                        <div class="card form-card">
+                            <div class="card-header"><h3>تدقيق العروض ومطابقة المنفذين</h3></div>
+                            <div class="form-group"><label>نوع الفحص والمطابقة</label><select id="proposalActionSelect" class="form-control"><option value="enrich">إثراء وتدقيق العرض قبل الإرسال (Enrichment §12)</option><option value="suggest">اقتراح صياغة ومزايا العرض (Proposal Suggest §10)</option><option value="matching">مطابقة وترشيح المشاريع للمنفذ (Matching §13)</option><option value="fit">تحليل توافق المشروع واستراتيجية الفوز (Project Fit §14)</option><option value="metrics">حساب مؤشرات الأداء الـ 8 للمنفذ (Metrics §16)</option></select></div>
+                            <div class="form-group"><label for="proposalMessageInput">رسالة العرض</label><textarea id="proposalMessageInput" class="form-control" rows="3">خبرة 5 سنوات في React و Next.js، قمت بتنفيذ 12 متجر مع بوابات دفع وسأسلم المشروع خلال 14 يوماً مع كود نظيف.</textarea></div>
+                            <button class="btn btn-primary" id="runProposalActionBtn">تنفيذ الفحص والمطابقة</button>
+                        </div>
+                        <div class="card result-card">
+                            <div class="card-header">
+                                <h3>نتائج الفحص والتدقيق</h3>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span class="latency-indicator" id="proposalLatencyIndicator">جاهز</span>
+                                    <span class="badge" id="proposalBadge">جاهز</span>
+                                </div>
+                            </div>
+                            <div id="proposalOutputBox" class="stream-output-box">حدد العملية واضغط "تنفيذ الفحص" لرؤية النتيجة...</div>
+                            <div class="json-inspector" id="proposalInspector">
+                                <div class="json-inspector-header">
+                                    <div style="display:flex;gap:6px;">
+                                        <button type="button" class="inspector-tab-btn" data-target="propReq">المدخلات (Request JSON)</button>
+                                        <button type="button" class="inspector-tab-btn active" data-target="propRes">المخرجات (Response JSON)</button>
+                                    </div>
+                                    <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                </div>
+                                <pre class="json-viewer is-req is-hidden" id="propReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                <pre class="json-viewer is-res" id="propResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Panel 4: Disputes -->
+                <section class="tab-panel" id="panel-disputes">
+                    <div class="playground-grid">
+                        <div class="card form-card">
+                            <div class="card-header"><h3>تلخيص النزاعات القضائي المحايد</h3></div>
+                            <div class="form-group"><label for="disputeClientClaim">ادعاء العميل</label><textarea id="disputeClientClaim" class="form-control" rows="2">المنفذ تأخر 10 أيام وهناك أخطاء في بوابة الدفع.</textarea></div>
+                            <div class="form-group"><label for="disputeProviderClaim">رد المنفذ</label><textarea id="disputeProviderClaim" class="form-control" rows="2">العميل قام بتغيير المتطلبات وإضافة ميزات جديدة بدون زيادة الوقت.</textarea></div>
+                            <button class="btn btn-primary" id="runDisputeBtn">توليد تقرير النزاع المحايد (Paid Project)</button>
+                        </div>
+                        <div class="card result-card">
+                            <div class="card-header">
+                                <h3>تقرير النزاع الاستشاري</h3>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span class="latency-indicator" id="disputeLatencyIndicator">جاهز</span>
+                                    <span class="badge badge-warning" id="disputeBadge">مشروع مدفوع (Paid)</span>
+                                </div>
+                            </div>
+                            <div id="disputeOutputBox" class="stream-output-box">التقرير القضائي المحايد سيظهر هنا...</div>
+                            <div class="json-inspector" id="disputeInspector">
+                                <div class="json-inspector-header">
+                                    <div style="display:flex;gap:6px;">
+                                        <button type="button" class="inspector-tab-btn" data-target="dispReq">المدخلات (Request JSON)</button>
+                                        <button type="button" class="inspector-tab-btn active" data-target="dispRes">المخرجات (Response JSON)</button>
+                                    </div>
+                                    <span class="inspector-toggle-label">سجل الـ API ▾</span>
+                                </div>
+                                <pre class="json-viewer is-req is-hidden" id="dispReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                <pre class="json-viewer is-res" id="dispResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Panel 5: Help & Avatar (RAG & Waseet Voice Studio) -->
+                <section class="tab-panel" id="panel-help">
+                    <div class="playground-grid">
+                        <div class="card form-card">
+                            <div class="card-header">
+                                <h3>استوديو التحدث الصوتي واللهجات (Waseet Voice Studio)</h3>
+                                <span class="badge badge-success">Waseet Neural Voice Pro</span>
+                            </div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label>نماذج سريعة للهجات العربية</label>
+                                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                                    <button type="button" class="btn btn-secondary btn-sm tts-preset-btn" data-preset="egyptian">عامية مصرية 🇪🇬</button>
+                                    <button type="button" class="btn btn-secondary btn-sm tts-preset-btn" data-preset="gulf">خليجية 🇸🇦</button>
+                                    <button type="button" class="btn btn-secondary btn-sm tts-preset-btn" data-preset="saudi">سعودية 🇸🇦</button>
+                                    <button type="button" class="btn btn-secondary btn-sm tts-preset-btn" data-preset="msa">فصحى معاصرة 🌐</button>
+                                    <button type="button" class="btn btn-secondary btn-sm tts-preset-btn" data-preset="english">English 🇬🇧</button>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="ttsTextInput">النص المراد نطقه أو سؤال الأفاتار</label>
+                                <textarea id="ttsTextInput" class="form-control" rows="3">يا أهلاً بيك يا فندم في منصة وسيط! إحنا هنا علشان نضمنلك كل مليم في مشروعك ونسلملك الشغل على الفرازة مع نظام الدفع المشروط الذكي.</textarea>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group col">
+                                    <label for="ttsModelSelect">موديل الصوت (Voice Engine)</label>
+                                    <select id="ttsModelSelect" class="form-control">
+                                        <option value="AUTO" selected>Auto Voice Selector (اختيار وتوجيه صوتي ذكي وتلقائي)</option>
+                                        <option value="waseet-voice-lite">Waseet Voice Lite (فائق السرعة وخفيف المعالجة)</option>
+                                        <option value="waseet-voice-turbo">Waseet Voice Turbo (سريع وطبيعي)</option>
+                                        <option value="waseet-voice-pro">Waseet Voice Studio Pro (أعلى جودة صوتية ودقة استوديو)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group col">
+                                    <label for="ttsDialectSelect">اللهجة المستهدفة</label>
+                                    <select id="ttsDialectSelect" class="form-control">
+                                        <option value="egyptian" selected>اللهجة المصرية (عامية مصرية)</option>
+                                        <option value="gulf">اللهجة الخليجية (هادئة ومهذبة)</option>
+                                        <option value="saudi">اللهجة السعودية (مرحابة وواثقة)</option>
+                                        <option value="msa">اللغة العربية الفصحى المعاصرة</option>
+                                        <option value="english">Professional English</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group col">
+                                    <label for="ttsVoiceSelect">شخصية الصوت (Voice)</label>
+                                    <select id="ttsVoiceSelect" class="form-control">
+                                        <option value="Puck" selected>Puck (حيوي ومرح - الأفضل للعربية)</option>
+                                        <option value="Kore">Kore (واثقة ورسمية وقوية)</option>
+                                        <option value="Fenrir">Fenrir (حماس وطاقة عالية)</option>
+                                        <option value="Aoede">Aoede (سلسة وهادئة وطبيعية)</option>
+                                        <option value="Zephyr">Zephyr (نقية ومشرقة وواضحة)</option>
+                                        <option value="Sulafat">Sulafat (صوت دافئ وودود)</option>
+                                        <option value="Charon">Charon (رصين ومعلوماتي)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group col">
+                                    <label for="ttsRateSelect">سرعة الإلقاء (Pacing)</label>
+                                    <select id="ttsRateSelect" class="form-control">
+                                        <option value="normal" selected>طبيعي (Normal)</option>
+                                        <option value="slow">هادئ ومتأني (Slow)</option>
+                                        <option value="rapid">سريع ومتحمس (Rapid)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="btn btn-primary" id="runTtsBtn">🔊 نطق النص وتوليد الصوت (Waseet Voice)</button>
+                                <button class="btn btn-secondary" id="askAvatarBtn">🤖 محادثة صوتية مع الأفاتار</button>
+                                <button class="btn btn-secondary btn-sm" id="askHelpBtn">💬 سؤال نصي (RAG Stream)</button>
+                            </div>
+                        </div>
+                        <div class="card result-card">
+                            <div class="card-header">
+                                <h3>المشغل الصوتي واستجابة الذكاء الاصطناعي</h3>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span class="latency-indicator" id="ttsLatencyIndicator">جاهز</span>
+                                    <span class="badge" id="ttsBadge">جاهز</span>
+                                </div>
+                            </div>
+                            <div id="ttsPlayerContainer" style="background:var(--console-surface-2);padding:16px;border-radius:8px;margin-bottom:14px;border:1px solid var(--console-border);">
+                                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                                    <span style="font-weight:600;font-size:0.875rem;" id="ttsAudioStatusTitle">المشغل الصوتي (WAV 24kHz):</span>
+                                    <a id="ttsDownloadBtn" class="btn btn-secondary btn-sm" style="display:none;" download="waseet-speech.wav">تحميل ملف الصوت (WAV)</a>
+                                </div>
+                                <audio id="ttsAudioPlayer" controls style="width:100%;height:40px;outline:none;display:none;"></audio>
+                                <div id="ttsPlaceholderText" style="color:var(--console-text-muted);font-size:0.85rem;">اختر اللهجة والموديل واضغط "نطق النص" للاستماع الفوري للصوت...</div>
+                            </div>
+                            <div id="helpOutputBox" class="stream-output-box" style="min-height:100px;">نص الإجابة أو التفاصيل سيظهر هنا...</div>
+                            <div class="json-inspector" id="helpInspector">
+                                <div class="json-inspector-header">
+                                    <div style="display:flex;gap:6px;">
+                                        <button type="button" class="inspector-tab-btn" data-target="helpReq">المدخلات (Request JSON)</button>
+                                        <button type="button" class="inspector-tab-btn active" data-target="helpRes">المخرجات (Response JSON)</button>
+                                    </div>
+                                    <span class="inspector-toggle-label">سجل الـ TTS/API ▾</span>
+                                </div>
+                                <pre class="json-viewer is-req is-hidden" id="helpReqViewer">// مدخلات الـ Payload ستظهر هنا...</pre>
+                                <pre class="json-viewer is-res" id="helpResViewer">// استجابة الـ API ستظهر هنا...</pre>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Utility Rail (Right) -->
+        <aside class="utility-rail">
+            <div class="rail-top">
+                <button class="rail-btn avatar-btn tooltip-anchor" data-tooltip="Waseet AI">
+                    <div class="avatar">W</div>
+                    <div class="status-dot online"></div>
+                </button>
+                <button class="rail-btn tooltip-anchor" id="livePingBtn" data-tooltip="Ping Health">
+                    <div class="icon-wrapper">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                        <span class="badge" id="pingBadge">OK</span>
+                    </div>
+                </button>
+                <button class="rail-btn tooltip-anchor" data-tooltip="Quick AI Check">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>
+                </button>
+                <div class="rail-separator"></div>
+                <button class="rail-btn tooltip-anchor" data-tooltip="API Guide">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                </button>
+            </div>
+            
+            <div class="rail-bottom">
+                <button class="rail-btn tooltip-anchor" id="themeToggleBtn" data-tooltip="تبديل المظهر">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.6"/><path d="M12 2v2.2M12 19.8V22M2 12h2.2M19.8 12H22M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M19.07 4.93l-1.56 1.56M6.49 17.51l-1.56 1.56"/></svg>
+                </button>
+            </div>
+        </aside>
+    </div>
+
+    <script type="module" src="app.js?v=17"></script>
+</body>
+</html>
