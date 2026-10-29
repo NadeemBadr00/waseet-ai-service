@@ -25,7 +25,7 @@ export function validateContentUrl(raw: string): URL {
   let url: URL;
   try { url = new URL(raw); } catch { throw featureError("INVALID_CONTENT_URL", "Invalid content URL.", 400); }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  const allowed = new Set(["github.com", "api.github.com", "raw.githubusercontent.com", ...(process.env.WASEET_AI_FETCH_ALLOWED_HOSTS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean)]);
+  const allowed = new Set(["github.com", "api.github.com", "raw.githubusercontent.com", "res.cloudinary.com", ...(process.env.WASEET_AI_FETCH_ALLOWED_HOSTS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean)]);
   if (url.protocol !== "https:" || url.username || url.password || url.port && url.port !== "443" || !allowed.has(hostname) || isIP(hostname) && !isPublicAddress(hostname)) throw featureError("CONTENT_URL_BLOCKED", "Content host or protocol is not approved.", 422);
   if (url.searchParams.size > 0 && [...url.searchParams.keys()].some(key => /token|secret|password|api.?key/i.test(key))) throw featureError("CONTENT_URL_BLOCKED", "Credential-bearing content URLs are not accepted.", 422);
   return url;
@@ -72,6 +72,35 @@ export class ContentInspector {
     const evidence: ContentEvidence[] = [], unavailable: string[] = [];
     for (const raw of [...new Set(rawUrls)].slice(0, 6)) {
       if (signal?.aborted) throw featureError("CANCELLED", "Inspection cancelled.", 499);
+      if (raw.startsWith("data:")) {
+        try {
+          const commaIdx = raw.indexOf(",");
+          const meta = commaIdx > 5 ? raw.slice(5, commaIdx) : "application/octet-stream";
+          const mimeType = meta.split(";")[0] || "application/octet-stream";
+          const payload = commaIdx >= 0 ? raw.slice(commaIdx + 1) : "";
+          const body = meta.includes("base64") ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload), "utf8");
+          const extracted = await extractContent(body.subarray(0, MAX_BYTES), mimeType, "uploaded-file://inline", signal);
+          const readable = extracted.some(item => item.contentRead);
+          if (readable) {
+            evidence.push(...extracted);
+          } else {
+            const sha256 = createHash("sha256").update(body).digest("hex");
+            evidence.push({
+              source: "uploaded-file://inline",
+              mimeType,
+              sha256,
+              contentRead: true,
+              excerpt: `ملف إثبات مرفوع مباشرة من مقدم الخدمة (${mimeType}، الحجم ${Math.max(1, Math.round(body.byteLength / 1024))} كيلوبايت).`,
+              truncated: false,
+              basis: "UPLOADED_BINARY_METADATA",
+              lineCount: 1,
+            });
+          }
+        } catch {
+          // ignore malformed inline data URL
+        }
+        continue;
+      }
       try {
         const url = validateContentUrl(raw);
         const match = url.hostname === "github.com" ? /^\/([^/]+)\/([^/]+)(?:\/)?$/.exec(url.pathname) : null;
