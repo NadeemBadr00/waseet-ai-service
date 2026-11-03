@@ -25,7 +25,7 @@ export function validateContentUrl(raw: string): URL {
   let url: URL;
   try { url = new URL(raw); } catch { throw featureError("INVALID_CONTENT_URL", "Invalid content URL.", 400); }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  const allowed = new Set(["github.com", "api.github.com", "raw.githubusercontent.com", ...(process.env.WASEET_AI_FETCH_ALLOWED_HOSTS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean)]);
+  const allowed = new Set(["github.com", "api.github.com", "raw.githubusercontent.com", "res.cloudinary.com", ...(process.env.WASEET_AI_FETCH_ALLOWED_HOSTS ?? "").split(",").map(value => value.trim().toLowerCase()).filter(Boolean)]);
   if (url.protocol !== "https:" || url.username || url.password || url.port && url.port !== "443" || !allowed.has(hostname) || isIP(hostname) && !isPublicAddress(hostname)) throw featureError("CONTENT_URL_BLOCKED", "Content host or protocol is not approved.", 422);
   if (url.searchParams.size > 0 && [...url.searchParams.keys()].some(key => /token|secret|password|api.?key/i.test(key))) throw featureError("CONTENT_URL_BLOCKED", "Credential-bearing content URLs are not accepted.", 422);
   return url;
@@ -65,13 +65,46 @@ export function extractTextContent(body: Buffer, mimeType: string, source: strin
   text = text.trim();
   return { source, mimeType, sha256, contentRead: text.length > 0, excerpt: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT, basis: "FETCHED_TEXT", lineCount: text.split("\n").length };
 }
+/** Decode only bounded, well-formed inline content; never label a truncated prefix as the full file. */
+function decodeInlineContent(raw: string): { body: Buffer; mimeType: string } {
+  const comma = raw.indexOf(",");
+  if (comma < 5) throw featureError("INVALID_INLINE_CONTENT", "Malformed inline content.", 422);
+  const metadata = raw.slice(5, comma).split(";");
+  const mimeType = (metadata[0] || "text/plain").toLowerCase();
+  if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType)) throw featureError("INVALID_INLINE_CONTENT", "Malformed inline content type.", 422);
+  const payload = raw.slice(comma + 1);
+  const base64 = metadata.slice(1).some(part => part.toLowerCase() === "base64");
+  const limit = base64 ? Math.ceil(MAX_BYTES / 3) * 4 : MAX_BYTES * 3;
+  if (payload.length > limit) throw featureError("CONTENT_TOO_LARGE", "Content exceeds the bounded read limit.", 422);
+  if (base64 && (payload.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload))) throw featureError("INVALID_INLINE_CONTENT", "Malformed base64 content.", 422);
+  const body = base64 ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload), "utf8");
+  if (!body.length) throw featureError("INVALID_INLINE_CONTENT", "Empty inline content.", 422);
+  if (body.length > MAX_BYTES) throw featureError("CONTENT_TOO_LARGE", "Content exceeds the bounded read limit.", 422);
+  return { body, mimeType };
+}
 export class ContentInspector {
   public static async inspect(rawUrls: string[], signal?: AbortSignal): Promise<InspectionResult> {
     signal ??= getTenantContext()?.signal;
     signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
     const evidence: ContentEvidence[] = [], unavailable: string[] = [];
-    for (const raw of [...new Set(rawUrls)].slice(0, 6)) {
+    const inputs = [...new Set(rawUrls)].slice(0, 6);
+    for (const [index, raw] of inputs.entries()) {
       if (signal?.aborted) throw featureError("CANCELLED", "Inspection cancelled.", 499);
+      if (raw.startsWith("data:")) {
+        // An opaque per-input source keeps diagnostics useful without returning
+        // the inline payload (which can contain confidential document contents).
+        const source = `uploaded-file://inline/${index + 1}`;
+        try {
+          const { body, mimeType } = decodeInlineContent(raw);
+          const extracted = await extractContent(body, mimeType, source, signal);
+          evidence.push(...extracted);
+          if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${source}`);
+        } catch (error) {
+          if (signal.aborted || (error as { code?: string }).code === "CANCELLED") throw featureError("CANCELLED", "Inspection cancelled.", 499);
+          unavailable.push(`${(error as { code?: string }).code ?? "INVALID_INLINE_CONTENT"}:${source}`);
+        }
+        continue;
+      }
       try {
         const url = validateContentUrl(raw);
         const match = url.hostname === "github.com" ? /^\/([^/]+)\/([^/]+)(?:\/)?$/.exec(url.pathname) : null;

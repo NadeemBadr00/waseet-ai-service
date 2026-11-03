@@ -11,22 +11,52 @@ import { ProjectPoolManager } from "../router/project-pool.manager.js";
 import { assertDurableStorage } from "../router/storage-policy.js";
 
 export const classificationSchema = z.enum(["PUBLIC_APPROVED", "SYNTHETIC", "INTERNAL", "PERSONAL", "SENSITIVE"]);
-export const transcribeSchema = z.object({ audioBase64: z.string().min(4).max(13981020), mimeType: z.enum(["audio/wav", "audio/mp3", "audio/mpeg", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac", "audio/m4a", "audio/l16", "audio/opus", "audio/alaw", "audio/mulaw", "audio/webm"]), languageCodes: z.array(z.string().regex(/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/)).max(8).default([]), mode: z.enum(["verbatim", "smart"]).default("verbatim"), timestamps: z.boolean().default(false), diarization: z.boolean().default(false), customVocabulary: z.array(z.string().min(1).max(100)).max(1000).default([]), classification: classificationSchema.default("PERSONAL") }).strict().superRefine((v, ctx) => { if ((v.mode === "smart" || v.customVocabulary.length > 0) && (v.timestamps || v.diarization)) ctx.addIssue({ code: "custom", message: "Timestamps and diarization require verbatim mode without custom vocabulary." }); });
+const normalizedAudioMimeSchema = z.preprocess(
+  val => (typeof val === "string" ? val.split(";")[0]!.trim().toLowerCase() : val),
+  z.enum(["audio/wav", "audio/mp3", "audio/mpeg", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac", "audio/m4a", "audio/l16", "audio/opus", "audio/alaw", "audio/mulaw", "audio/webm", "audio/mp4"]),
+);
+export const transcribeSchema = z.object({ audioBase64: z.string().min(4).max(13981020), mimeType: normalizedAudioMimeSchema, languageCodes: z.array(z.string().regex(/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/)).max(8).default([]), mode: z.enum(["verbatim", "smart"]).default("verbatim"), timestamps: z.boolean().default(false), diarization: z.boolean().default(false), customVocabulary: z.array(z.string().min(1).max(100)).max(1000).default([]), classification: classificationSchema.default("PERSONAL") }).strict().superRefine((v, ctx) => { if ((v.mode === "smart" || v.customVocabulary.length > 0) && (v.timestamps || v.diarization)) ctx.addIssue({ code: "custom", message: "Timestamps and diarization require verbatim mode without custom vocabulary." }); });
 export const liveTokenSchema = z.object({ model: z.literal("gemini-3.8-live").default("gemini-3.8-live"), voice: TtsVoiceEnum.default("Puck"), language: z.string().regex(/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/).default("ar-EG"), classification: classificationSchema.default("PERSONAL") }).strict();
 export class VoiceGateway {
   public static async transcribe(value: unknown, options: OperationOptions = {}) {
     const input = transcribeSchema.parse(value); decodeBase64(input.audioBase64, 10 * 1024 * 1024);
     const mode = input.mode === "smart" ? "smart" : { type: "verbatim", ...(input.timestamps ? { timestamp_granularities: ["word"] } : {}), ...(input.diarization ? { diarization_mode: "speaker" } : {}) };
-    const out = await modelOperation(["gemini-3.5-transcribe"], input.classification, async (project, model, signal, lease) => {
-      const response = await providerFetch(project, "interactions", { model, store: false, input: [{ type: "audio", data: input.audioBase64, mime_type: input.mimeType }], generation_config: { transcription_config: { mode, language_codes: input.languageCodes, ...(input.customVocabulary.length ? { custom_vocabulary: input.customVocabulary } : {}) } } }, signal), data = await readJsonBounded(response, signal, 4000000);
-      if (data.status !== "completed" || data.error) throw new AiProviderError("AI_STT_INCOMPLETE");
-      const content = ((data.steps ?? []) as Array<{ content?: Array<Record<string, unknown>> }>).flatMap(s => s.content ?? []);
-      const text = typeof data.output_text === "string" ? data.output_text : content.filter(c => c.type === "text" && typeof c.text === "string").map(c => c.text).join("");
-      if (!text.trim() || text.length > 120000) throw new AiProviderError("AI_STT_EMPTY_TRANSCRIPT");
-      const words = content.flatMap(c => (c.annotations ?? []) as Array<Record<string, unknown>>).filter(a => a.type === "word_info");
-      const usage = responseUsage(data); if (usage) ProjectPoolManager.accountTokens(lease, usage.totalTokens);
-      return { text, words, model, usage: usage ?? null, mode: input.mode };
-    }, { deadlineMs: 60000, ...options, estimatedTokens: 8192 }); return out.result;
+    try {
+      const out = await modelOperation(["gemini-3.5-transcribe"], input.classification, async (project, model, signal, lease) => {
+        const response = await providerFetch(project, "interactions", { model, store: false, input: [{ type: "audio", data: input.audioBase64, mime_type: input.mimeType }], generation_config: { transcription_config: { mode, language_codes: input.languageCodes, ...(input.customVocabulary.length ? { custom_vocabulary: input.customVocabulary } : {}) } } }, signal), data = await readJsonBounded(response, signal, 4000000);
+        if (data.status !== "completed" || data.error) throw new AiProviderError("AI_STT_INCOMPLETE");
+        const content = ((data.steps ?? []) as Array<{ content?: Array<Record<string, unknown>> }>).flatMap(s => s.content ?? []);
+        const text = typeof data.output_text === "string" ? data.output_text : content.filter(c => c.type === "text" && typeof c.text === "string").map(c => c.text).join("");
+        if (!text.trim() || text.length > 120000) throw new AiProviderError("AI_STT_EMPTY_TRANSCRIPT");
+        const words = content.flatMap(c => (c.annotations ?? []) as Array<Record<string, unknown>>).filter(a => a.type === "word_info");
+        const usage = responseUsage(data); if (usage) ProjectPoolManager.accountTokens(lease, usage.totalTokens);
+        return { text, words, model, usage: usage ?? null, mode: input.mode };
+      }, { deadlineMs: 30000, ...options, estimatedTokens: 8192 });
+      return out.result;
+    } catch (primaryErr) {
+      if (input.timestamps || input.diarization) throw primaryErr;
+      const langHint = input.languageCodes.length ? input.languageCodes.join(", ") : "ar-EG, ar, en";
+      const vocabHint = input.customVocabulary.length ? ` Vocabulary hints: ${input.customVocabulary.slice(0, 50).join(", ")}.` : "";
+      const fallback = await modelOperation(["gemini-3.8-flash-lite", "gemini-3.8-flash"], input.classification, async (project, model, signal, lease) => {
+        const response = await providerFetch(project, `models/${model}:generateContent`, {
+          contents: [{
+            role: "user",
+            parts: [
+              { inlineData: { mimeType: input.mimeType, data: input.audioBase64 } },
+              { text: `Transcribe this audio recording accurately in its spoken language (${langHint}).${vocabHint} Return ONLY the exact transcribed text with no commentary, no quotes, and no formatting wrapper.` },
+            ],
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
+        }, signal);
+        const data = await readJsonBounded(response, signal, 2000000);
+        const candidates = (data.candidates ?? []) as Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        const text = candidates.flatMap(c => c.content?.parts ?? []).map(p => p.text ?? "").join("").trim();
+        if (!text || text.length > 120000) throw new AiProviderError("AI_STT_EMPTY_TRANSCRIPT");
+        const usage = responseUsage(data); if (usage) ProjectPoolManager.accountTokens(lease, usage.totalTokens);
+        return { text, words: [], model, usage: usage ?? null, mode: input.mode };
+      }, { deadlineMs: 45000, ...options, estimatedTokens: 4096 });
+      return fallback.result;
+    }
   }
   private static database: DatabaseSync | undefined;
   private static db(): DatabaseSync { assertDurableStorage(); if (!this.database) { const directory = resolve(process.env.WASEET_AI_STATE_DIR ?? "work/state"); mkdirSync(directory, { recursive: true }); this.database = new DatabaseSync(resolve(directory, "voice-sessions.sqlite")); this.database.exec("PRAGMA busy_timeout=5000;PRAGMA journal_mode=WAL;CREATE TABLE IF NOT EXISTS live_slots(owner TEXT PRIMARY KEY,expires INTEGER,operation TEXT);"); } return this.database; }
@@ -68,7 +98,6 @@ const embeddingsSchema = embeddingSchema.omit({ text: true }).extend({ texts: z.
 /** Each item is a separate embedding request; multiple parts would aggregate into one vector. */
 export async function embedTexts(value: unknown, options: OperationOptions = {}) {
   const input = embeddingsSchema.parse(value), vectors: number[][] = [];
-  // One request per lease keeps the project/model RPM accounting honest.
   const deadline = Date.now() + (options.deadlineMs ?? 20000);
   for (let offset = 0; offset < input.texts.length; offset += 16) {
     options.signal?.throwIfAborted();

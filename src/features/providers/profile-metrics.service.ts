@@ -24,7 +24,17 @@ export class ProfileMetricsService {
     return result;
   }
   public static async suggestSkills(input: SkillsSuggestInput): Promise<{ suggestedSkills: string[] }> {
-    const data = await generateValidated({ featureId: "AI-17-SKILLS-SUGGEST", modelTier: "LIGHT", preferredModel: "gemini-2.5-flash", effort: "low", attemptTimeoutMs: 15000, maxAttempts: 4, classification: "PERSONAL", systemInstruction: "اقترح 10 مهارات قياسية للتخصص المذكور (مثل: HTML, CSS, JavaScript, TypeScript, React, Vue.js, Angular, Next.js, Node.js, Express, NestJS, Python, Django, FastAPI, REST API, GraphQL, SQL, PostgreSQL, Git, اختبار البرمجيات, مراجعة الكود, تصميم البنية التقنية، أو المهارات القياسية المطابقة للمجال). هي اقتراحات وليست ادعاء أن المستخدم يمتلكها. أرجع suggestedSkills فقط.", prompt: JSON.stringify({ specialtyName: input.specialtyName, existingSkills: input.existingSkills }) }, z.object({ suggestedSkills: z.array(z.string().trim().min(1).max(100)).min(1).max(12) }));
+    const data = await generateValidated({
+      featureId: "AI-17-SKILLS-SUGGEST",
+      modelTier: "LIGHT",
+      preferredModel: "gemini-2.5-flash",
+      effort: "low",
+      attemptTimeoutMs: 15000,
+      maxAttempts: 4,
+      classification: "PERSONAL",
+      systemInstruction: "اقترح من 8 إلى 12 مهارة قياسية ومعتمدة للتخصص المذكور من القائمة القياسية للمنصة (مثل: لتطوير المواقع: HTML, CSS, JavaScript, TypeScript, React, Vue.js, Angular, Next.js, Node.js, Express, NestJS, Python, Django, FastAPI, REST API, GraphQL, SQL, PostgreSQL, Git؛ لتطوير التطبيقات: Flutter, Dart, React Native, Swift, Kotlin, Firebase, REST API, Git؛ للتصميم: Figma, Adobe XD, UI Design, UX Research, Wireframing, Prototyping, Adobe Photoshop, Adobe Illustrator؛ للتسويق: SEO, Google Ads, Meta Ads, إدارة حسابات التواصل, كتابة المحتوى التسويقي, Google Analytics؛ للذكاء الاصطناعي والبيانات: Python, SQL, Power BI, Tableau, Machine Learning, Deep Learning, تقييم النماذج؛ للأمن السيبراني: اختبار الاختراق, تقييم الثغرات, أمن تطبيقات الويب, OWASP, Linux, Docker؛ ولغيرها المهارات القياسية المطابقة للمجال). لا تكرر المهارات الموجودة في existingSkills. أرجع suggestedSkills فقط.",
+      prompt: JSON.stringify({ specialtyName: input.specialtyName, existingSkills: input.existingSkills })
+    }, z.object({ suggestedSkills: z.array(z.string().trim().min(1).max(100)).min(1).max(12) }));
     const known = new Set(input.existingSkills.map(value => value.trim().toLowerCase()));
     return { suggestedSkills: [...new Set(data.suggestedSkills)].filter(value => !known.has(value.toLowerCase())) };
   }

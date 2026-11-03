@@ -49,8 +49,11 @@ export class TenantAuthService {
       const secret = this.signingSecret();
       const auth = request.headers.authorization;
       if (!auth?.startsWith("Bearer ")) throw featureError("AUTH_REQUIRED", "An expiring Bearer token is required.", 401);
-      const parts = auth.slice(7).trim().split(".");
-      if (parts.length !== 3 || parts.some(part => part.length > 8000)) throw featureError("AUTH_INVALID", "Invalid access token.", 401);
+      const rawToken = auth.slice(7).trim();
+      const parts = rawToken.split(".");
+      // Only signed, expiring service tokens are accepted. Bootstrap secrets and
+      // legacy bearer credentials must never become an alternate identity path.
+      if (parts.length !== 3 || parts.some(part => !part || part.length > 8000)) throw featureError("AUTH_INVALID", "Invalid access token.", 401);
       const [header, payload, signature] = parts as [string, string, string];
       const expected = createHmac("sha256", secret).update(`${header}.${payload}`).digest("base64url");
       if (!this.compare(signature, expected)) throw featureError("AUTH_INVALID", "Invalid access token.", 401);
