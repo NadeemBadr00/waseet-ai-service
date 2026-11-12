@@ -1,33 +1,72 @@
 import { z } from "zod";
-import { generateValidated, scoreSchema, textSchema, textListSchema } from "../../core/security/model-output.js";
+import { generateValidated, featureError, scoreSchema, textSchema, textListSchema } from "../../core/security/model-output.js";
 import type { ProposalSuggestInput, ProposalSuggestOutput, ProposalAuditInput } from "./proposal.types.js";
 export class ProposalAuditService {
   public static async suggestProposal(input: ProposalSuggestInput): Promise<ProposalSuggestOutput> {
-    const cleanLine = (s: string) => s.replace(/\*\*(.*?)\*\*/g, "$1").replace(/__(.*?)__/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/^\s*[-*•▸]\s+/gm, "").replace(/`/g, "").replace(/\s+/g, " ").trim();
-    const targetDays = Math.max(1, Math.round(input.project?.deliveryDays ?? 7));
-    const maxSteps = Math.min(4, targetDays);
-    const stepSchema = z.object({ name: textSchema, desc: textSchema }).strict();
-    const data = await generateValidated({ featureId: "AI-10-PROPOSAL-SUGGEST", modelTier: "MEDIUM", classification: "PERSONAL", prompt: JSON.stringify({ ...input, targetDeliveryDays: targetDays, maxMilestones: maxSteps }), systemInstruction: `You are an expert Arabic proposal assistant on Waseet. Using the supplied currentTitle, optional currentMessage, and project details (title, description, requirements, deliveryDays=${targetDays}), write a cohesive Arabic proposal where the proposal text (introParagraph, executionSteps, closingParagraph), deliverables (suggestedOutputs), and execution milestones (executionSteps, between ${Math.min(2, maxSteps)} and ${maxSteps} steps) are 100% aligned. Always populate introParagraph, executionSteps, closingParagraph, and suggestedOutputs. Plain Arabic text only, no Markdown symbols (** or #), no invented years of experience or fake stats.` }, z.object({ suggestedTitle: textSchema, suggestedMessage: textSchema.optional(), introParagraph: textSchema.optional(), executionSteps: z.array(stepSchema).min(1).max(6).optional(), closingParagraph: textSchema.optional(), suggestedOutputs: textSchema.optional(), qualityScore: scoreSchema, qualityTag: z.enum(["Good", "Excellent", "Needs Improvement"]), suggestedAdvantages: textListSchema }).strict());
-    const steps = (data.executionSteps ?? []).slice(0, maxSteps);
-    const n = steps.length;
-    const baseDays = n > 0 ? Math.floor(targetDays / n) : targetDays;
-    let remDays = n > 0 ? targetDays - baseDays * n : 0;
-    const basePct = n > 0 ? Math.floor(100 / n) : 100;
-    let remPct = n > 0 ? 100 - basePct * n : 0;
-    const suggestedMilestones = steps.map((st) => {
-      const d = baseDays + (remDays > 0 ? 1 : 0); if (remDays > 0) remDays--;
-      const p = basePct + (remPct > 0 ? 5 : 0); if (remPct >= 5) remPct -= 5;
-      return { name: cleanLine(st.name).replace(/^[1-9]\.\s*/, ""), desc: cleanLine(st.desc), days: Math.max(1, d), pct: p };
-    });
-    const pctSum = suggestedMilestones.reduce((acc, m) => acc + m.pct, 0);
-    if (suggestedMilestones.length > 0 && pctSum !== 100) suggestedMilestones[0]!.pct += 100 - pctSum;
-    const stepsBlock = suggestedMilestones.map((m, idx) => `${idx + 1}. ${m.name} (${m.days} ${m.days === 1 ? "يوم" : "أيام"}): ${m.desc}`).join("\n");
-    const assembledMessage = n > 0 && data.introParagraph && data.closingParagraph
-      ? `تحية طيبة وبعد،\n\n${cleanLine(data.introParagraph)}\n\nنقترح عليكم خطة عمل مقسمة على ${n} مراحل بإجمالي مدة تنفيذ (${targetDays} أيام) تغطي كافة الجوانب المطلوبة:\n\n${stepsBlock}\n\n${cleanLine(data.closingParagraph)}`
-      : cleanLine(data.suggestedMessage ?? data.introParagraph ?? "أقترح تنفيذ المخرجات المطلوبة وفق النطاق المتفق عليه.");
-    const min = input.project?.budgetMin ?? null, max = input.project?.budgetMax ?? null;
-    const suggestedTotalPrice = min !== null && max !== null ? Math.round((min + max) / 2) : (min ?? max ?? null);
-    return { suggestedTitle: cleanLine(data.suggestedTitle), suggestedMessage: assembledMessage, ...(data.suggestedOutputs ? { suggestedOutputs: cleanLine(data.suggestedOutputs) } : {}), suggestedTotalPrice, ...(suggestedMilestones.length ? { suggestedMilestones } : {}), qualityScore: data.qualityScore, qualityTag: data.qualityTag, suggestedAdvantages: data.suggestedAdvantages.map(cleanLine), scoreBasis: "PROPOSAL_QUALITY", priceAudit: { recommendedMin: min, recommendedMax: max, priceTag: null, justification: min !== null || max !== null ? "حدود ميزانية المشروع المرسلة، وليست تقدير سعر سوقي أو ضمان ملاءمة." : "لم تُرسل ميزانية أو أدلة تسعير كافية." } };
+    const rawTitle = (input.currentTitle ?? "").trim();
+    const rawMessage = (input.currentMessage ?? "").trim();
+    if (!rawTitle && !rawMessage) {
+      throw featureError("AI_NOT_ENOUGH_DATA", "يرجى كتابة مسودة مبدئية لعنوان وتفاصيل العرض أولاً ليقوم الذكاء الاصطناعي بتحسين صياغتها.", 422);
+    }
+    const cleanLine = (s: string) => s.replace(/\*\*(.*?)\*\*/g, "$1").replace(/__(.*?)__/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/^\s*[-*•▸]\s+/gm, "").replace(/`/g, "").replace(/[ \t]+/g, " ").trim();
+    const cleanMultiline = (s: string) => s.split(/\r?\n/).map(cleanLine).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+    const data = await generateValidated({
+      featureId: "AI-10-PROPOSAL-SUGGEST",
+      modelTier: "MEDIUM",
+      preferredModel: "gemini-2.5-flash",
+      effort: "low",
+      attemptTimeoutMs: 20000,
+      maxAttempts: 4,
+      classification: "PERSONAL",
+      prompt: JSON.stringify({
+        currentTitle: rawTitle,
+        currentMessage: rawMessage,
+        project: input.project
+          ? {
+              title: input.project.title,
+              description: input.project.description,
+              requirements: input.project.requirements,
+              deliveryDays: input.project.deliveryDays,
+            }
+          : undefined,
+      }),
+      systemInstruction: [
+        "أنت محرر لغوي ومهني متخصص في تحسين صياغة عروض المستقلين على منصة وسيط باللغة العربية الفصحى الواضحة.",
+        "مهمتك حصراً هي إعادة صياغة وتحسين النص الذي كتبه مقدم الخدمة بنفسه (currentTitle وcurrentMessage) ليظهر بأسلوب احترافي مقنع ومنظم ومرتبط بمتطلبات المشروع، دون كتابة عرض وهمي نيابةً عنه.",
+        "قواعد صارمة:",
+        "1. حافظ على الأفكار والالتزامات والمنهجية التي ذكرها مقدم الخدمة في currentTitle وcurrentMessage، ولا تخترع سنوات خبرة أو إحصائيات أو مشاريع سابقة أو تقنيات أو مراحل دفع مالية لم يذكرها.",
+        "2. لا تقسّم العرض إلى مراحل مالية أو جدول دفعات مصطنع، ولا تفرض تسعيراً من عندك.",
+        "3. اكتب نصاً عربياً صافياً بدون أي رموز Markdown (لا تستخدم ** أو # أو `).",
+        "4. أرجع suggestedTitle (تحسين عنوان العرض)، وsuggestedMessage (الصياغة المحسنة لرسالة العرض)، وqualityScore (0-100)، وqualityTag ('Good' أو 'Excellent' أو 'Needs Improvement')، وsuggestedAdvantages (نقاط قوة مستخلصة من نص العرض نفسه فقط).",
+      ].join("\n"),
+    }, z.object({
+      suggestedTitle: textSchema,
+      suggestedMessage: textSchema,
+      qualityScore: scoreSchema,
+      qualityTag: z.enum(["Good", "Excellent", "Needs Improvement"]).catch("Good"),
+      suggestedAdvantages: textListSchema.default([]),
+    }));
+
+    const min = input.project?.budgetMin ?? null;
+    const max = input.project?.budgetMax ?? null;
+    return {
+      suggestedTitle: cleanLine(data.suggestedTitle),
+      suggestedMessage: cleanMultiline(data.suggestedMessage),
+      suggestedTotalPrice: null,
+      qualityScore: data.qualityScore,
+      qualityTag: data.qualityTag,
+      suggestedAdvantages: data.suggestedAdvantages.map(cleanLine).filter(Boolean),
+      scoreBasis: "PROPOSAL_QUALITY",
+      priceAudit: {
+        recommendedMin: min,
+        recommendedMax: max,
+        priceTag: null,
+        justification: min !== null || max !== null
+          ? "حدود ميزانية المشروع المرسلة، وليست تقدير سعر سوقي أو ضمان ملاءمة."
+          : "لم تُرسل ميزانية أو أدلة تسعير كافية.",
+      },
+    };
   }
   public static async *auditProposalStream(input: ProposalAuditInput) {
     yield { event: "ai_audit_progress", data: { stage: "validation", progress: 20, message: "مراجعة المعلومات المتاحة..." } };

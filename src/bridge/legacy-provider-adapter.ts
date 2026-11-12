@@ -157,11 +157,21 @@ export const legacyProviderAdapterRoutes: FastifyPluginAsync = async (fastify) =
   });
 
   fastify.post("/api/provider/profile/suggest-skills", async (request) => {
-    const body = (request.body as { providerId?: string; specialtyName?: string } | undefined) ?? {};
+    const body = (request.body as {
+      providerId?: string;
+      specialtyName?: string;
+      subSpecialties?: string[];
+      jobTitle?: string;
+      availableSkills?: string[];
+      existingSkills?: string[];
+    } | undefined) ?? {};
     const data = await ProfileMetricsService.suggestSkills({
       providerId: body.providerId ?? "prov-default",
       specialtyName: body.specialtyName ?? "تطوير ويب",
-      existingSkills: [],
+      subSpecialties: Array.isArray(body.subSpecialties) ? body.subSpecialties : undefined,
+      jobTitle: typeof body.jobTitle === "string" ? body.jobTitle : undefined,
+      availableSkills: Array.isArray(body.availableSkills) ? body.availableSkills : undefined,
+      existingSkills: Array.isArray(body.existingSkills) ? body.existingSkills : [],
     });
     return { success: true, data };
   });

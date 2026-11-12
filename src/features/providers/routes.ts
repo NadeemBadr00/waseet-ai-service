@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import {
   ProfileMetricsInputSchema,
   BioSuggestInputSchema,
+  BioEnhanceInputSchema,
   SkillsSuggestInputSchema,
 } from "./profile-metrics.types.js";
 import { ProfileMetricsService } from "./profile-metrics.service.js";
@@ -24,6 +25,15 @@ export const providerRoutes: FastifyPluginAsync = async (fastify) => {
   };
   fastify.post("/v1/ai/profile/bio", handleBio);
   fastify.post("/v1/ai/profile/suggest-bio", handleBio);
+
+  // AI-17B: Enhance / Rephrase Existing Bio
+  const handleEnhanceBio = async (request: any) => {
+    const input = BioEnhanceInputSchema.parse(request.body);
+    const data = await ProfileMetricsService.enhanceBio(input);
+    return { success: true, requestId: `req-${Date.now()}`, data };
+  };
+  fastify.post("/v1/ai/profile/bio/enhance", handleEnhanceBio);
+  fastify.post("/v1/ai/profile/enhance-bio", handleEnhanceBio);
 
   // AI-17: Suggest Skills
   fastify.post("/v1/ai/profile/skills", async (request) => {

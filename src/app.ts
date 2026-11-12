@@ -5,6 +5,7 @@ import { clientProjectRoutes } from "./features/client-projects/routes.js";
 import { assessmentRoutes } from "./features/assessments/routes.js";
 import { proposalRoutes } from "./features/proposals/routes.js";
 import { providerRoutes } from "./features/providers/routes.js";
+import { identityRoutes } from "./features/identity/routes.js";
 import { marketplaceRoutes } from "./features/marketplace/routes.js";
 import { disputeRoutes } from "./features/disputes/routes.js";
 import { businessModelRoutes } from "./features/business-models/routes.js";
@@ -48,9 +49,9 @@ export function buildApp(): FastifyInstance {
     if (origin && !allowed.includes(origin)) return reply.status(403).send({ success: false, error: { code: "ORIGIN_BLOCKED", message: "Origin is not approved." } });
     if (origin) { reply.raw.setHeader("Access-Control-Allow-Origin", origin); reply.header("Access-Control-Allow-Origin", origin); reply.header("Vary", "Origin"); }
     reply.raw.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    reply.raw.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    reply.raw.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Request-Id, X-Client-Id");
     reply.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    reply.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, X-Request-Id, X-Client-Id");
     if (request.method === "OPTIONS") {
       reply.raw.statusCode = 204;
       reply.raw.end();
@@ -107,6 +108,7 @@ export function buildApp(): FastifyInstance {
   app.register(assessmentRoutes);
   app.register(proposalRoutes);
   app.register(providerRoutes);
+  app.register(identityRoutes);
   app.register(marketplaceRoutes);
   app.register(disputeRoutes);
   app.register(businessModelRoutes);

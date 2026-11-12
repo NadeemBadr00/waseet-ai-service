@@ -44,22 +44,29 @@ export class AccreditationService {
     }
 
     const urls = samples.flatMap(sample => [sample.githubUrl, sample.projectUrl, ...(sample.attachments ?? []).map(item => typeof item === "string" ? item : (item as { url?: string } | null)?.url)].filter((url): url is string => !!url));
-    const inspection = await ContentInspector.inspect(urls);
+    const detailed = await ContentInspector.inspectWithMedia(urls);
+    const { visualAttachments, ...inspection } = detailed;
+    const contents = visualAttachments.length > 0
+      ? [{ role: "user" as const, parts: visualAttachments.map(att => ({ inlineData: { mimeType: att.mimeType, data: att.data } })) }]
+      : undefined;
     const rawFeedback = await generateValidated({
       featureId: "AI-06-PORTFOLIO-REVIEW",
       modelTier: "HEAVY",
       effort: "low",
       classification: "PERSONAL",
+      ...(contents ? { contents } : {}),
       systemInstruction: [
-        "مراجعة استشارية باللغة العربية الفصحى للتخصص ونماذج الأعمال المرسلة.",
+        "مراجعة استشارية باللغة العربية الفصحى للتخصص ونماذج الأعمال المرسلة والمحتوى الفعلي المقروء أو المرئي.",
         "ممنوع منعاً باتاً كتابة أي رموز أو مصطلحات برمجية أو تقنية إنجليزية داخل النص العربي مثل (inspected: false) أو ERR_INVALID_IP_ADDRESS أو CONTENT_URL_BLOCKED أو publicSampleUrl أو fileUrl.",
-        "إذا كان عنوان النموذج أو وصفه يتضمن نشاطاً غير قانوني أو مخالفاً للأنظمة (مثل التهرب الضريبي أو التحايل أو بيع المحظورات)، اذكر في summary وwarnings بوضوح أن النموذج مرفوض لمخالفته الأنظمة والسياسات ولا اذكر أي نقاط قوة له.",
+        "إذا كان عنوان النموذج أو وصفه يتضمن نشاطاً غير قانوني أو مخالفاً للأنظمة (مثل التهرب الضريبي أو التحايل أو بيع المحظورات)، اذكر في summary وwarnings بوضوح أن النموذج مرفوض لمخالفته الأنظمة والسياسات ولا تذكر أي نقاط قوة له.",
+        "إذا وُجدت صور مرفقة أو ملفات مقروءة، قارن ما يظهر فيها فعلياً مع عنوان النموذج والتخصص المختار، واذكر أي عدم تطابق بوضوح.",
         "راجع مدى ملاءمة عنوان النموذج ووصفه والمنهجيات/الأدوات المذكورة للتخصص المختار، وقدّم ملاحظات واضحة ومفيدة باللغة العربية السليمة في summary وstrengths وwarnings وcorrections.",
       ].join(" "),
       prompt: JSON.stringify({
         specialty,
         samples: samples.map(sample => ({ title: sample.title, description: sample.description, technologies: sample.technologies })),
         evidence: inspection.evidence.filter(item => item.contentRead).map(item => ({ excerpt: item.excerpt, truncated: item.truncated })),
+        visualAttachmentsCount: visualAttachments.length,
       }),
     }, reviewSchema);
 

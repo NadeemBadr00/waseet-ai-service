@@ -5,7 +5,31 @@ import { ProjectVectorStore } from "../../core/knowledge/project-vector-store.js
 import { ClientMemoryStore } from "../../core/knowledge/client-memory-store.js";
 import { getTenantContext } from "../../core/auth/tenant-context.js";
 import { assertContentPolicyAllowed, inspectMultipleContentPolicy } from "../../core/security/content-policy.js";
-import type { ProjectDescriptionStreamInput, RequestDraftInput, RequestDraftOutput } from "./project-draft.types.js";
+import type { ProjectDescriptionStreamInput, RequestDraftInput, RequestDraftOutput, RequestBudgetSuggestInput, RequestBudgetSuggestOutput } from "./project-draft.types.js";
+
+function normalizeMilestonePercentages(milestones: Array<{ name: string; pct: number }> | undefined): Array<{ name: string; pct: number }> | undefined {
+  if (!Array.isArray(milestones) || milestones.length < 2) return milestones;
+  const cleaned = milestones.map(m => ({
+    name: m.name.replace(/^[0-9٠-٩]+[.)\-]\s*/, "").trim(),
+    pct: Math.max(5, Math.min(90, Math.round(m.pct))),
+  }));
+  const sumPct = cleaned.reduce((acc, m) => acc + m.pct, 0);
+  if (sumPct === 100) return cleaned;
+  if (sumPct > 0) {
+    const scaled = cleaned.map(m => ({ ...m, pct: Math.max(5, Math.round((m.pct / sumPct) * 100)) }));
+    const diff = 100 - scaled.reduce((acc, m) => acc + m.pct, 0);
+    scaled[0]!.pct = Math.max(5, scaled[0]!.pct + diff);
+    if (scaled.reduce((acc, m) => acc + m.pct, 0) === 100) return scaled;
+  }
+  const n = cleaned.length;
+  const base = Math.floor(100 / n);
+  let rem = 100 - base * n;
+  return cleaned.map(m => {
+    const add = rem > 0 ? 1 : 0;
+    if (rem > 0) rem--;
+    return { ...m, pct: base + add };
+  });
+}
 
 export class ProjectDraftService {
   private static getAuthenticatedClientMemory() {
@@ -70,6 +94,10 @@ export class ProjectDraftService {
     const data = await generateValidated({
       featureId: "AI-02-REQUEST-DRAFT-SUGGEST",
       modelTier: "MEDIUM",
+      preferredModel: "gemini-2.5-flash",
+      effort: "low",
+      attemptTimeoutMs: 25000,
+      maxAttempts: 4,
       classification: "PERSONAL",
       prompt: JSON.stringify(payload),
       systemInstruction: [
@@ -85,40 +113,32 @@ export class ProjectDraftService {
         "7. suggestedDurationDays: مدة التنفيذ المقترحة بالأيام (رقم صحيح واقعي بين 3 و90، أو احترم deliveryDays المرفق إن وجد).",
         "8. suggestedMinBudget و suggestedMaxBudget: نطاق ميزانية تقديري واقعي بالدولار (USD) يتناسب مع حجم المشروع (مثلًا 400 إلى 800).",
         "9. suggestedMilestones: 3 مراحل دفع منطقية، لكل مرحلة name (اسم المرحلة) و pct (نسبة مئوية صحيحة بحيث يكون مجموع النسب يساوي 100% بالضبط).",
+        "10. complexityRating: درجة تعقيد المشروع ('Low' أو 'Medium' أو 'High').",
+        "11. personalizedNote: نصيحة استشارية قصيرة للعميل باللغة العربية لتحسين وضوح الطلب.",
       ].join("\n"),
       signal,
     }, z.object({
       suggestedTitle: textSchema,
       suggestedDescription: textSchema,
-      suggestedSubSpecialties: textListSchema,
+      suggestedSubSpecialties: textListSchema.default([]),
       suggestedRequiredSkills: z.array(textSchema).min(1).max(10).optional(),
       suggestedRequirements: z.array(textSchema).min(1).max(8).optional(),
       suggestedOutputs: textSchema.optional(),
-      suggestedDurationDays: z.number().int().min(1).max(365).nullable(),
-      suggestedMinBudget: z.number().int().min(50).max(100000).nullable().optional(),
-      suggestedMaxBudget: z.number().int().min(50).max(200000).nullable().optional(),
+      suggestedDurationDays: z.number().int().min(1).max(365).nullable().optional(),
+      suggestedMinBudget: z.number().int().min(20).max(100000).nullable().optional(),
+      suggestedMaxBudget: z.number().int().min(20).max(200000).nullable().optional(),
       suggestedMilestones: z.array(z.object({
         name: textSchema,
         pct: z.number().int().min(5).max(100),
-      }).strict()).min(2).max(5).optional(),
-      complexityRating: z.enum(["Low", "Medium", "High"]),
-      personalizedNote: textSchema,
-    }).strict());
+      })).min(2).max(5).optional(),
+      complexityRating: z.enum(["Low", "Medium", "High"]).catch("Medium"),
+      personalizedNote: textSchema.catch("راجع نطاق العمل ومعايير القبول المقترحة قبل نشر الطلب."),
+    }));
 
-    let normalizedMilestones = data.suggestedMilestones;
-    if (Array.isArray(normalizedMilestones) && normalizedMilestones.length >= 2) {
-      const sumPct = normalizedMilestones.reduce((acc, m) => acc + m.pct, 0);
-      if (sumPct !== 100) {
-        const n = normalizedMilestones.length;
-        const base = Math.floor(100 / n);
-        let rem = 100 - base * n;
-        normalizedMilestones = normalizedMilestones.map(m => {
-          const add = rem > 0 ? 1 : 0;
-          if (rem > 0) rem--;
-          return { ...m, pct: base + add };
-        });
-      }
-    }
+    const normalizedMilestones = normalizeMilestonePercentages(data.suggestedMilestones);
+    const resolvedDurationDays = typeof data.suggestedDurationDays === "number" && data.suggestedDurationDays > 0
+      ? data.suggestedDurationDays
+      : (typeof input.deliveryDays === "number" && input.deliveryDays > 0 ? input.deliveryDays : 14);
 
     if (input.specialtyName) {
       const pricing = ProjectVectorStore.getStatisticalPricing(input.specialtyName, {
@@ -129,6 +149,7 @@ export class ProjectDraftService {
       if (pricing.hasMarketData) {
         return {
           ...data,
+          suggestedDurationDays: resolvedDurationDays,
           suggestedMilestones: normalizedMilestones,
           recommendedMinBudget: pricing.recommendedMinBudget,
           recommendedMaxBudget: pricing.recommendedMaxBudget,
@@ -143,11 +164,112 @@ export class ProjectDraftService {
 
     return {
       ...data,
+      suggestedDurationDays: resolvedDurationDays,
       suggestedMilestones: normalizedMilestones,
       recommendedMinBudget: minB,
       recommendedMaxBudget: maxB,
       aiMatchScoreEstimate: null,
       estimationBasis: "AUTHORING_SUGGESTION_NO_MARKET_DATA",
+    };
+  }
+
+  public static async suggestBudgetAndMilestones(input: RequestBudgetSuggestInput): Promise<RequestBudgetSuggestOutput> {
+    assertContentPolicyAllowed([
+      input.title,
+      input.description,
+      input.specialtyName,
+      input.outputs,
+      ...(input.subSpecialties ?? []),
+      ...(input.requiredSkills ?? []),
+      ...(input.requirements ?? []),
+    ]);
+    const signal = getTenantContext()?.signal;
+    const searchContext = `${input.title || ""} ${input.specialtyName || ""}`.trim() || `${input.description || ""}`.trim() || "مشروع تقني";
+    const benchmarks = await ProjectVectorStore.searchSimilarByText(
+      searchContext,
+      { category: input.specialtyName, limit: 3, signal }
+    );
+
+    const payload: Record<string, unknown> = { ...input };
+    if (benchmarks.length > 0) {
+      payload["marketBenchmarks"] = benchmarks.map(b => ({
+        category: b.project.category,
+        subSpecialty: b.project.subSpecialty,
+        durationDays: b.project.durationDays,
+        budgetAmount: b.project.budgetAmount,
+      }));
+    }
+
+    const data = await generateValidated({
+      featureId: "AI-02B-REQUEST-BUDGET-MILESTONES",
+      modelTier: "MEDIUM",
+      preferredModel: "gemini-2.5-flash",
+      effort: "low",
+      attemptTimeoutMs: 20000,
+      maxAttempts: 4,
+      classification: "PERSONAL",
+      prompt: JSON.stringify(payload),
+      systemInstruction: [
+        "أنت مستشار تسعير وتخطيط مراحل لمشاريع منصة وسيط باللغة العربية الفصحى الواضحة.",
+        "بناءً على بيانات المشروع المرسلة فقط (العنوان، الوصف، التخصص، المهارات، الشروط، المخرجات، ومدة التنفيذ إن وجدت)، اقترح تقديراً واقعياً للميزانية ومراحل الدفع دون تعديل عنوان أو وصف المشروع:",
+        "1. recommendedMinBudget: الحد الأدنى الواقعي للميزانية بعملة الطلب (رقم صحيح موجب).",
+        "2. recommendedMaxBudget: الحد الأعلى الواقعي للميزانية بعملة الطلب (رقم صحيح أكبر من أو يساوي الحد الأدنى).",
+        "3. suggestedDurationDays: مدة التنفيذ المقترحة بالأيام (احترم deliveryDays المرسل إن كان موجباً، وإلا اقترح مدة واقعية بين 3 و90 يوماً).",
+        "4. suggestedMilestones: من 2 إلى 4 مراحل دفع عملية متسلسلة تناسب هذا المشروع تحديداً (وليس أسماء عامة جامدة)، لكل مرحلة name باللغة العربية وpct نسبة مئوية صحيحة مجموعها 100%.",
+        "5. complexityRating: 'Low' أو 'Medium' أو 'High'.",
+        "6. rationaleAr: جملة عربية موجزة توضح أساس تقدير الميزانية وتوزيع المراحل.",
+      ].join("\n"),
+      signal,
+    }, z.object({
+      recommendedMinBudget: z.number().int().min(20).max(100000),
+      recommendedMaxBudget: z.number().int().min(20).max(250000),
+      suggestedDurationDays: z.number().int().min(1).max(365).catch(14),
+      suggestedMilestones: z.array(z.object({
+        name: textSchema,
+        pct: z.number().int().min(5).max(95),
+      })).min(2).max(5),
+      complexityRating: z.enum(["Low", "Medium", "High"]).catch("Medium"),
+      rationaleAr: textSchema.catch("تقدير استرشادي للميزانية وتوزيع المراحل بناءً على نطاق المشروع."),
+    }));
+
+    let minBudget = data.recommendedMinBudget;
+    let maxBudget = Math.max(minBudget, data.recommendedMaxBudget);
+    let estimationBasis = "AUTHORING_SUGGESTION_NO_MARKET_DATA";
+
+    if (input.specialtyName) {
+      const pricing = ProjectVectorStore.getStatisticalPricing(input.specialtyName, {
+        currency: input.currency,
+        minSampleSize: 3,
+      });
+      if (pricing.hasMarketData && pricing.recommendedMinBudget && pricing.recommendedMaxBudget) {
+        minBudget = pricing.recommendedMinBudget;
+        maxBudget = Math.max(minBudget, pricing.recommendedMaxBudget);
+        estimationBasis = "MARKET_VECTOR_BENCHMARKS";
+      }
+    }
+
+    if (maxBudget === minBudget) {
+      maxBudget = Math.round(minBudget * 1.4);
+    }
+
+    const normalizedMilestones = normalizeMilestonePercentages(data.suggestedMilestones) ?? [
+      { name: "تحليل المتطلبات والتصميم المبدئي", pct: 30 },
+      { name: "التنفيذ الأساسي والمراجعة المرحلية", pct: 40 },
+      { name: "الاختبار والتسليم النهائي", pct: 30 },
+    ];
+
+    const durationDays = typeof input.deliveryDays === "number" && input.deliveryDays > 0
+      ? input.deliveryDays
+      : data.suggestedDurationDays;
+
+    return {
+      recommendedMinBudget: minBudget,
+      recommendedMaxBudget: maxBudget,
+      suggestedDurationDays: durationDays,
+      suggestedMilestones: normalizedMilestones,
+      complexityRating: data.complexityRating,
+      rationaleAr: data.rationaleAr,
+      estimationBasis,
     };
   }
 
