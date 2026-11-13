@@ -7,9 +7,14 @@ import { extractContent } from "./document-extractor.js";
 import { getTenantContext } from "../auth/tenant-context.js";
 
 export interface ContentEvidence { source: string; mimeType: string; sha256: string; contentRead: boolean; excerpt: string; truncated: boolean; basis: string; lineCount: number; analysis?: unknown }
+export interface VisualAttachment { source: string; mimeType: string; data: string; byteLength: number }
 export interface InspectionResult { inspected: boolean; basis: string; evidence: ContentEvidence[]; unavailable: string[] }
-const MAX_BYTES = 512 * 1024;
+export interface DetailedInspectionResult extends InspectionResult { visualAttachments: VisualAttachment[] }
+const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_INLINE_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT = 24000;
+const TEXT_SOURCE_EXT = /\.(?:md|txt|csv|json|ts|tsx|js|jsx|py|go|java|cs|sql|prisma|php|rb|dart|kt|swift|vue|svelte|scss|graphql|sh|toml|html?|css|yaml|yml)(?:\?|$)/i;
+const REPO_BLOB_EXT = /\.(?:md|ts|tsx|js|jsx|py|json|go|java|cs|sql|prisma|php|rb|dart|kt|swift|vue|svelte|scss|graphql|html?|css|yaml|yml)$/i;
 export function isPublicAddress(address: string): boolean {
   if (isIP(address) === 4) {
     const [first, second, third] = address.split(".").map(Number) as [number, number, number];
@@ -57,7 +62,7 @@ export async function fetchBounded(raw: string, signal?: AbortSignal, redirects 
   });
 }
 export function extractTextContent(body: Buffer, mimeType: string, source: string): ContentEvidence {
-  const isText = /^(text\/|application\/(?:json|javascript|xml|x-typescript))/.test(mimeType) || /\.(?:md|txt|csv|json|ts|tsx|js|jsx|py|html?|css|yaml|yml)(?:\?|$)/i.test(source);
+  const isText = /^(text\/|application\/(?:json|javascript|xml|x-typescript|sql|graphql))/.test(mimeType) || TEXT_SOURCE_EXT.test(source);
   const sha256 = createHash("sha256").update(body).digest("hex");
   if (!isText || body.includes(0)) return { source, mimeType, sha256, contentRead: false, excerpt: "", truncated: false, basis: "UNSUPPORTED_BINARY_FORMAT", lineCount: 0 };
   let text = body.toString("utf8");
@@ -65,39 +70,56 @@ export function extractTextContent(body: Buffer, mimeType: string, source: strin
   text = text.trim();
   return { source, mimeType, sha256, contentRead: text.length > 0, excerpt: text.slice(0, MAX_TEXT), truncated: text.length > MAX_TEXT, basis: "FETCHED_TEXT", lineCount: text.split("\n").length };
 }
+function decodeInlineContent(raw: string, index: number): { body: Buffer; mimeType: string; source: string } {
+  const source = `uploaded-file://inline/${index + 1}`;
+  const commaIdx = raw.indexOf(",");
+  if (commaIdx < 5) throw featureError("INVALID_INLINE_CONTENT", "Malformed inline content.", 422);
+  const meta = raw.slice(5, commaIdx);
+  const mimeType = (meta.split(";")[0] || "application/octet-stream").trim().toLowerCase();
+  const payload = raw.slice(commaIdx + 1).trim();
+  if (!payload) throw featureError("EMPTY_INLINE_CONTENT", "Inline content is empty.", 422);
+  if (meta.includes(";base64")) {
+    const normalized = payload.replace(/\s+/g, "");
+    if (normalized.length > Math.ceil(MAX_INLINE_BYTES / 3) * 4 + 4 || normalized.length % 4 === 1 || /[^A-Za-z0-9+/=]/.test(normalized)) {
+      throw featureError("CONTENT_TOO_LARGE", "Inline content exceeds limit or is malformed.", 422);
+    }
+    const body = Buffer.from(normalized, "base64");
+    if (!body.byteLength || body.byteLength > MAX_INLINE_BYTES) throw featureError("CONTENT_TOO_LARGE", "Inline content exceeds limit.", 422);
+    return { body, mimeType, source };
+  }
+  const decoded = decodeURIComponent(payload);
+  const body = Buffer.from(decoded, "utf8");
+  if (!body.byteLength || body.byteLength > MAX_INLINE_BYTES) throw featureError("CONTENT_TOO_LARGE", "Inline content exceeds limit.", 422);
+  return { body, mimeType, source };
+}
+function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out: VisualAttachment[]): void {
+  if (out.length >= 2 || body.byteLength < 32 || body.byteLength > 2 * 1024 * 1024) return;
+  const normalizedMime = /^image\/(?:jpeg|png|webp)$/i.test(mimeType)
+    ? mimeType.toLowerCase()
+    : /\.jpe?g(?:\?|$)/i.test(source) ? "image/jpeg"
+    : /\.png(?:\?|$)/i.test(source) ? "image/png"
+    : /\.webp(?:\?|$)/i.test(source) ? "image/webp"
+    : null;
+  if (!normalizedMime) return;
+  out.push({ source, mimeType: normalizedMime, data: body.toString("base64"), byteLength: body.byteLength });
+}
 export class ContentInspector {
-  public static async inspect(rawUrls: string[], signal?: AbortSignal): Promise<InspectionResult> {
+  public static async inspectWithMedia(rawUrls: string[], signal?: AbortSignal): Promise<DetailedInspectionResult> {
     signal ??= getTenantContext()?.signal;
     signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
-    const evidence: ContentEvidence[] = [], unavailable: string[] = [];
-    for (const raw of [...new Set(rawUrls)].slice(0, 6)) {
+    const evidence: ContentEvidence[] = [], unavailable: string[] = [], visualAttachments: VisualAttachment[] = [];
+    for (const [index, raw] of [...new Set(rawUrls)].slice(0, 6).entries()) {
       if (signal?.aborted) throw featureError("CANCELLED", "Inspection cancelled.", 499);
       if (raw.startsWith("data:")) {
+        const inlineSource = `uploaded-file://inline/${index + 1}`;
         try {
-          const commaIdx = raw.indexOf(",");
-          const meta = commaIdx > 5 ? raw.slice(5, commaIdx) : "application/octet-stream";
-          const mimeType = meta.split(";")[0] || "application/octet-stream";
-          const payload = commaIdx >= 0 ? raw.slice(commaIdx + 1) : "";
-          const body = meta.includes("base64") ? Buffer.from(payload, "base64") : Buffer.from(decodeURIComponent(payload), "utf8");
-          const extracted = await extractContent(body.subarray(0, MAX_BYTES), mimeType, "uploaded-file://inline", signal);
-          const readable = extracted.some(item => item.contentRead);
-          if (readable) {
-            evidence.push(...extracted);
-          } else {
-            const sha256 = createHash("sha256").update(body).digest("hex");
-            evidence.push({
-              source: "uploaded-file://inline",
-              mimeType,
-              sha256,
-              contentRead: true,
-              excerpt: `ملف إثبات مرفوع مباشرة من مقدم الخدمة (${mimeType}، الحجم ${Math.max(1, Math.round(body.byteLength / 1024))} كيلوبايت).`,
-              truncated: false,
-              basis: "UPLOADED_BINARY_METADATA",
-              lineCount: 1,
-            });
-          }
-        } catch {
-          // ignore malformed inline data URL
+          const { body, mimeType, source } = decodeInlineContent(raw, index);
+          maybeCollectVisual(body, mimeType, source, visualAttachments);
+          const extracted = await extractContent(body, mimeType, source, signal);
+          evidence.push(...extracted);
+          if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${source}`);
+        } catch (error) {
+          unavailable.push(`${(error as { code?: string }).code ?? "INLINE_CONTENT_INVALID"}:${inlineSource}`);
         }
         continue;
       }
@@ -114,16 +136,26 @@ export class ContentInspector {
           if (!sha || !/^[a-f0-9]{40}$/.test(sha)) throw featureError("CONTENT_UNAVAILABLE", "A fixed repository revision could not be established.", 422);
           const treeResponse = await fetchBounded(`https://api.github.com/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`, signal);
           const tree = JSON.parse(treeResponse.body.toString()) as { tree?: Array<{ path: string; type: string; size?: number }>; truncated?: boolean };
-          const files = (tree.tree ?? []).filter(file => file.type === "blob" && (file.size ?? MAX_BYTES + 1) <= MAX_BYTES && /\.(md|ts|tsx|js|jsx|py|json)$/i.test(file.path) && !/(?:^|\/)(?:node_modules|dist|vendor|\.git)(?:\/|$)/.test(file.path)).sort((a, b) => (/readme/i.test(a.path) ? -1 : 0) - (/readme/i.test(b.path) ? -1 : 0)).slice(0, 5);
+          const files = (tree.tree ?? []).filter(file => file.type === "blob" && (file.size ?? MAX_BYTES + 1) <= MAX_BYTES && REPO_BLOB_EXT.test(file.path) && !/(?:^|\/)(?:node_modules|dist|build|coverage|vendor|\.git)(?:\/|$)/.test(file.path)).sort((a, b) => (/readme/i.test(a.path) ? -1 : 0) - (/readme/i.test(b.path) ? -1 : 0)).slice(0, 8);
           for (const file of files) {
             const source = `https://raw.githubusercontent.com/${owner}/${repo}/${sha}/${file.path.split("/").map(encodeURIComponent).join("/")}`;
             const fetched = await fetchBounded(source, signal); evidence.push(...await extractContent(fetched.body, fetched.mimeType, source, signal));
           }
           if (tree.truncated || (tree.tree?.length ?? 0) > files.length) unavailable.push(`REPOSITORY_PARTIAL:${raw}`);
-        } else { const fetched = await fetchBounded(url.href, signal); evidence.push(...await extractContent(fetched.body, fetched.mimeType, url.href, signal)); }
+        } else {
+          const fetched = await fetchBounded(url.href, signal);
+          maybeCollectVisual(fetched.body, fetched.mimeType, url.href, visualAttachments);
+          const extracted = await extractContent(fetched.body, fetched.mimeType, url.href, signal);
+          evidence.push(...extracted);
+          if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${url.href.split("?")[0]}`);
+        }
       } catch (error) { unavailable.push(`${(error as { code?: string }).code ?? "CONTENT_FETCH_FAILED"}:${raw.split("?")[0]}`); }
     }
     const inspected = evidence.some(item => item.contentRead);
-    return { inspected, basis: inspected ? "FETCHED_CONTENT_PARTIAL" : "CONTENT_NOT_INSPECTED", evidence, unavailable };
+    return { inspected, basis: inspected ? "FETCHED_CONTENT_PARTIAL" : "CONTENT_NOT_INSPECTED", evidence, unavailable, visualAttachments };
+  }
+  public static async inspect(rawUrls: string[], signal?: AbortSignal): Promise<InspectionResult> {
+    const { visualAttachments: _unused, ...rest } = await this.inspectWithMedia(rawUrls, signal);
+    return rest;
   }
 }

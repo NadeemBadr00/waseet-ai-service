@@ -8,12 +8,34 @@ type Candidate = { content?: { parts?: Array<{ text?: string; thought?: boolean;
 export interface TextStreamChunk { chunk: string; projectAliasUsed: string; modelUsed: string; usage?: InferenceResponse["usage"]; usageMeasured?: boolean; }
 export interface NativeTool { name: string; description: string; parameters: Record<string, unknown>; validate(args: unknown): unknown; execute(args: unknown, signal: AbortSignal): Promise<unknown>; }
 export class GeminiGateway {
-  private static estimate(request: InferenceRequest): number { return Buffer.byteLength(request.prompt) + Buffer.byteLength(request.systemInstruction ?? "") + Buffer.byteLength(JSON.stringify(request.contents ?? [])) + (request.maxOutputTokens ?? 2048); }
+  private static measureContents(contents: InferenceRequest["contents"]): { textBytes: number; mediaParts: number; mediaChars: number } {
+    let textBytes = 0, mediaParts = 0, mediaChars = 0;
+    for (const turn of contents ?? []) {
+      for (const part of turn.parts ?? []) {
+        const inline = part.inlineData as { mimeType?: unknown; data?: unknown } | undefined;
+        if (inline && typeof inline === "object") {
+          if (typeof inline.mimeType !== "string" || !/^(?:image\/(?:jpeg|png|webp|gif)|application\/pdf)$/i.test(inline.mimeType) || typeof inline.data !== "string" || inline.data.length < 4) {
+            throw new AiProviderError("AI_CONTEXT_LIMIT", 400);
+          }
+          mediaParts++;
+          mediaChars += inline.data.length;
+        } else {
+          textBytes += Buffer.byteLength(JSON.stringify(part));
+        }
+      }
+    }
+    return { textBytes, mediaParts, mediaChars };
+  }
+  private static estimate(request: InferenceRequest): number {
+    const measured = this.measureContents(request.contents);
+    return Buffer.byteLength(request.prompt) + Buffer.byteLength(request.systemInstruction ?? "") + measured.textBytes + measured.mediaParts * 1024 + (request.maxOutputTokens ?? 2048);
+  }
   private static mockHandler: ((req: InferenceRequest, model: string, projectAlias: string) => Promise<string>) | null = null;
   public static setMockHandler(handler: typeof GeminiGateway.mockHandler): void { this.mockHandler = handler; }
   private static validate(request: InferenceRequest): void {
     if (!request.prompt || request.prompt.length > 120000 || (request.systemInstruction?.length ?? 0) > 24000 || !Number.isInteger(request.maxOutputTokens ?? 2048) || (request.maxOutputTokens ?? 2048) > 8192 || (request.maxOutputTokens ?? 2048) < 1) throw new AiProviderError("AI_CONTEXT_LIMIT", 400);
-    if (JSON.stringify(request.contents ?? []).length > 160000) throw new AiProviderError("AI_CONTEXT_LIMIT", 400);
+    const measured = this.measureContents(request.contents);
+    if (measured.textBytes > 160000 || measured.mediaParts > 4 || measured.mediaChars > 10500000) throw new AiProviderError("AI_CONTEXT_LIMIT", 400);
   }
   private static payload(request: InferenceRequest, model: string): Record<string, unknown> {
     const thinkingConfig = reasoningConfig(model, request.effort ?? (request.modelTier === "HEAVY" ? "high" : request.modelTier === "MEDIUM" ? "medium" : "low"), request.thinkingLevel === "minimal" && model !== "gemini-3.5-flash-lite" ? undefined : request.thinkingLevel);

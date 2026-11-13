@@ -39,9 +39,24 @@ export const BioSuggestInputSchema = z.object({
 
 export type BioSuggestInput = z.infer<typeof BioSuggestInputSchema>;
 
+export const BioEnhanceInputSchema = z.object({
+  providerId: z.string().min(1),
+  bio: z.string().trim().min(10).max(2000),
+  jobTitle: z.string().max(200).optional(),
+  specialties: z.array(z.string()).max(30).default([]),
+  subSpecialties: z.array(z.string()).max(30).default([]),
+  existingSkills: z.array(z.string()).max(50).optional(),
+  maxLength: z.number().int().min(80).max(2000).default(500),
+});
+
+export type BioEnhanceInput = z.infer<typeof BioEnhanceInputSchema>;
+
 export const SkillsSuggestInputSchema = z.object({
   providerId: z.string().min(1),
   specialtyName: z.string().min(1),
+  subSpecialties: z.array(z.string().max(150)).max(30).optional(),
+  jobTitle: z.string().max(200).optional(),
+  availableSkills: z.array(z.string().max(120)).max(250).optional(),
   existingSkills: z.array(z.string()).default([]),
 });
 

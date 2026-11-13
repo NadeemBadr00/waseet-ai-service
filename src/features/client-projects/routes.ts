@@ -6,7 +6,7 @@ import { MilestonesService } from "./milestones.service.js";
 import { HealthReviewService } from "./health-review.service.js";
 import { TextEnhanceService } from "./text-enhance.service.js";
 import { z } from "zod";
-import { ProjectDescriptionStreamInputSchema, RequestDraftInputSchema } from "./project-draft.types.js";
+import { ProjectDescriptionStreamInputSchema, RequestDraftInputSchema, RequestBudgetSuggestInputSchema } from "./project-draft.types.js";
 import { ProjectAnalysisInputSchema } from "./milestones.types.js";
 import { ProjectVectorStore } from "../../core/knowledge/project-vector-store.js";
 import { ClientMemoryStore } from "../../core/knowledge/client-memory-store.js";
@@ -49,6 +49,15 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
   };
   fastify.post("/v1/ai/request-draft", handleDraft);
   fastify.post("/v1/ai/client/requests/draft-suggest", handleDraft);
+
+  const handleBudgetMilestones = async (request: any) => {
+    const body = (request.body as Record<string, unknown>) ?? {};
+    const input = RequestBudgetSuggestInputSchema.parse(body);
+    const data = await ProjectDraftService.suggestBudgetAndMilestones(input);
+    return { success: true, requestId: `req-${Date.now()}`, data };
+  };
+  fastify.post("/v1/ai/budget-milestones", handleBudgetMilestones);
+  fastify.post("/v1/ai/client/requests/budget-milestones", handleBudgetMilestones);
 
   const handleTitleCheck = async (request: any) => {
     const body = z.object({
@@ -125,7 +134,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     return { success: true, requestId: `req-${Date.now()}`, data };
   });
 
-  fastify.post("/v1/ai/delivery-review", async (request) => {
+  fastify.post("/v1/ai/delivery-review", { bodyLimit: 10 * 1024 * 1024 }, async (request) => {
     const input = DeliveryReviewInputSchema.parse(request.body);
     const data = await HealthReviewService.reviewDelivery(input);
     return { success: true, requestId: `req-${Date.now()}`, data };

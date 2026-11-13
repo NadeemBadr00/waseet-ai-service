@@ -7,13 +7,27 @@ import { TtsSynthesizeInputSchema, TtsVoiceEnum, type TtsSynthesizeInput, type T
 
 export interface TtsSynthesisOptions extends OperationOptions { classification?: DataClassification; }
 const dialectStyles: Record<string, string> = { egyptian: "Egyptian Arabic, warm and natural", gulf: "Gulf Arabic, calm and welcoming", saudi: "Saudi Arabic, clear and welcoming", msa: "Modern Standard Arabic, clear and polished", english: "Natural clear English", custom: "Natural conversational tone" };
+const ENGLISH_ONLY_VOICES: Readonly<Record<string, "Puck" | "Kore">> = {
+  Callirrhoe: "Kore",
+  Leda: "Kore",
+  Zephyr: "Puck",
+  Orus: "Puck",
+};
+function isArabicSpeech(input: TtsSynthesizeInput): boolean {
+  return /[\u0600-\u06FF]/.test(input.text) || input.dialect === "egyptian" || input.dialect === "saudi" || input.dialect === "gulf" || input.dialect === "msa";
+}
+function normalizeTtsVoice(input: TtsSynthesizeInput): TtsSynthesizeInput {
+  if (!isArabicSpeech(input)) return input;
+  const mapped = ENGLISH_ONLY_VOICES[input.voice];
+  return mapped ? { ...input, voice: mapped } : input;
+}
 function audioContent(data: Record<string, unknown>): Array<Record<string, unknown>> { return ((data.steps ?? []) as Array<{ content?: Array<Record<string, unknown>> }>).flatMap(s => s.content ?? []).filter(c => c.type === "audio"); }
 export class TtsService {
   public static resolveStyle(input: TtsSynthesizeInput): string { return `${dialectStyles[input.dialect]}${input.speakingRate === "slow" ? ", speak slowly" : input.speakingRate === "rapid" ? ", speak briskly" : ""}${input.style ? `, ${input.style}` : ""}`; }
   public static getCandidateModels(preferredModel: string): string[] { if (preferredModel === "AUTO") return [...TTS_MODELS]; if (!(TTS_MODELS as readonly string[]).includes(preferredModel)) throw new AiProviderError("AI_TTS_MODEL_UNAPPROVED", 400); return [preferredModel, ...TTS_MODELS.filter(m => m !== preferredModel)]; }
   private static payload(model: string, input: TtsSynthesizeInput, stream = false): Record<string, unknown> { return { model, store: false, stream, input: [{ type: "user_input", content: [{ type: "text", text: input.text, annotations: [{ type: "speech_metadata", style: this.resolveStyle(input) }] }] }], response_format: { type: "audio", mime_type: stream ? "audio/l16" : input.mimeType }, generation_config: { speech_config: [{ voice: input.voice }] } }; }
-  public static async synthesize(value: TtsSynthesizeInput, options: TtsSynthesisOptions = {}): Promise<TtsSynthesizeOutput> {
-    const input = TtsSynthesizeInputSchema.parse(value), style = this.resolveStyle(input);
+  private static async synthesizeOnce(input: TtsSynthesizeInput, options: TtsSynthesisOptions = {}): Promise<TtsSynthesizeOutput> {
+    const style = this.resolveStyle(input);
     const out = await modelOperation(this.getCandidateModels(input.model), options.classification ?? "PERSONAL", async (project, model, signal, lease) => {
       const response = await providerFetch(project, "interactions", this.payload(model, input), signal), data = await readJsonBounded(response, signal);
       if (data.error || data.status !== "completed") throw new AiProviderError("AI_TTS_INCOMPLETE");
@@ -25,10 +39,24 @@ export class TtsService {
       const usage = responseUsage(data); if (usage) ProjectPoolManager.accountTokens(lease, usage.totalTokens);
       const durationEstimateSec = Math.round(((mimeType === "audio/wav" ? Math.max(0, bytes.length - 44) : bytes.length) / (24000 * (mimeType === "audio/alaw" || mimeType === "audio/mulaw" ? 1 : 2))) * 10) / 10;
       return { audio: { mimeType, base64Audio: bytes.toString("base64"), sizeBytes: bytes.length, durationEstimateSec }, metadata: { voice: input.voice, dialect: input.dialect, style, modelUsed: model, projectAliasUsed: project.alias, mimeType, sizeBytes: bytes.length, durationEstimateSec } };
-    }, { ...options, estimatedTokens: Buffer.byteLength(input.text) + 4096 }); return out.result;
+    }, { ...options, estimatedTokens: Buffer.byteLength(input.text) + 4096 });
+    return out.result;
+  }
+  public static async synthesize(value: TtsSynthesizeInput, options: TtsSynthesisOptions = {}): Promise<TtsSynthesizeOutput> {
+    const parsed = TtsSynthesizeInputSchema.parse(value);
+    const input = normalizeTtsVoice(parsed);
+    try {
+      return await this.synthesizeOnce(input, options);
+    } catch (error) {
+      const code = (error as { code?: string })?.code ?? "";
+      if (isArabicSpeech(input) && input.voice !== "Puck" && (code === "AI_PROVIDER_HTTP_400" || code === "AI_TTS_INCOMPLETE" || code === "AI_TTS_EMPTY_AUDIO")) {
+        return await this.synthesizeOnce({ ...input, voice: "Puck", dialect: input.dialect === "custom" ? "msa" : input.dialect }, options);
+      }
+      throw error;
+    }
   }
   public static async* streamSynthesis(value: TtsSynthesizeInput, options: TtsSynthesisOptions = {}): AsyncGenerator<{ chunkBase64: string; projectAliasUsed: string; modelUsed: string; mimeType: string; sampleRate: number }> {
-    const input = TtsSynthesizeInputSchema.parse(value), route = this.getCandidateModels(input.model), classification = options.classification ?? "PERSONAL", deadline = deadlineSignal(options), excluded = new Set<string>(); let emitted = false;
+    const input = normalizeTtsVoice(TtsSynthesizeInputSchema.parse(value)), route = this.getCandidateModels(input.model), classification = options.classification ?? "PERSONAL", deadline = deadlineSignal(options), excluded = new Set<string>(); let emitted = false;
     try {
       const attempts = options.maxAttempts ?? 3; if (!Number.isInteger(attempts) || attempts < 1 || attempts > 8) throw new AiProviderError("AI_INVALID_ATTEMPTS", 400);
       for (let i = 0; i < attempts; i++) {

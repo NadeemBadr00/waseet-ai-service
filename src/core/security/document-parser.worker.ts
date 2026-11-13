@@ -3,7 +3,7 @@ import { unzipSync } from "fflate";
 import { SaxesParser } from "saxes";
 import { parse as parseCode } from "@babel/parser";
 interface Parsed { name?: string; text: string; basis: string; truncated: boolean; analysis?: unknown }
-const MAX_TEXT = 24000, MAX_EXPANDED = 2 * 1024 * 1024;
+const MAX_TEXT = 24000, MAX_EXPANDED = 4 * 1024 * 1024;
 const body = Buffer.from(workerData.body as Uint8Array);
 const source = String(workerData.source), mime = String(workerData.mimeType);
 function ast(text: string, name: string): unknown {
@@ -63,7 +63,7 @@ async function parse(): Promise<Parsed[]> {
       parser.write(xml).close(); const value = parts.join("");
       return [{ text: value.slice(0, MAX_TEXT), basis: "DOCX_TEXT_EXTRACTION", truncated: value.length > MAX_TEXT }];
     }
-    const entries = Object.entries(contents).filter(([name]) => /\.(?:txt|md|json|tsx?|jsx?|py|css|html?|yml|yaml|csv)$/i.test(name)).slice(0, 12);
+    const entries = Object.entries(contents).filter(([name]) => !/(?:^|\/)(?:node_modules|dist|build|vendor|\.git|__MACOSX)(?:\/|$)/i.test(name) && /\.(?:txt|md|json|tsx?|jsx?|py|go|java|cs|sql|prisma|php|rb|dart|kt|swift|vue|svelte|scss|graphql|css|html?|yml|yaml|csv|toml|sh)$/i.test(name)).slice(0, 16);
     return entries.map(([name, bytes]) => { const text = Buffer.from(bytes).toString("utf8"); return { name, text: text.slice(0, MAX_TEXT), basis: "ZIP_TEXT_EXTRACTION", truncated: skipped || count > entries.length || text.length > MAX_TEXT, analysis: ast(text, name) }; });
   }
   const text = body.toString("utf8");

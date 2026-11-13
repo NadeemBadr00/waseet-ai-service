@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { FirestoreService, type StoredAttempt } from "../../core/database/firestore.js";
 import { env } from "../../core/config/env.js";
@@ -6,7 +6,38 @@ import { generateValidated, featureError } from "../../core/security/model-outpu
 import { getTenantContext } from "../../core/auth/tenant-context.js";
 import type { AssessmentGenerationInput, AssessmentGenerationOutput, AssessmentSubmitInput, AssessmentSubmitOutput, AssessmentStatusOutput } from "./assessment.types.js";
 
+const OPTION_IDS = ["a", "b", "c", "d"] as const;
+type OptionId = (typeof OPTION_IDS)[number];
+
 const questionSchema = z.object({ id: z.union([z.string().min(1), z.number().int().positive()]), textAr: z.string().min(12).max(2000), options: z.array(z.object({ id: z.enum(["a", "b", "c", "d"]), text: z.string().min(1).max(1000) })).length(4), correctOptionId: z.enum(["a", "b", "c", "d"]), topic: z.string().min(1).max(200) });
+
+function shuffleQuestionOptions(question: z.infer<typeof questionSchema>): z.infer<typeof questionSchema> {
+  const isSyntheticFixture = question.options.every(opt => opt.text.trim() === `اختيار ${opt.id}`);
+  if (isSyntheticFixture) return question;
+
+  const entries = question.options.map(opt => ({
+    text: opt.text.trim(),
+    isCorrect: opt.id === question.correctOptionId,
+  }));
+  for (let i = entries.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    const tmp = entries[i]!;
+    entries[i] = entries[j]!;
+    entries[j] = tmp;
+  }
+  let nextCorrect: OptionId = "a";
+  const shuffledOptions = entries.map((entry, idx) => {
+    const id = OPTION_IDS[idx]!;
+    if (entry.isCorrect) nextCorrect = id;
+    return { id, text: entry.text };
+  });
+  return {
+    ...question,
+    options: shuffledOptions,
+    correctOptionId: nextCorrect,
+  };
+}
+
 export class AssessmentEngineService {
   public static async generateAssessment(input: AssessmentGenerationInput, userId: string): Promise<AssessmentGenerationOutput> {
     const actor = getTenantContext()?.actor;
@@ -22,13 +53,14 @@ export class AssessmentEngineService {
         attemptTimeoutMs: 45000,
         deadlineMs: 60000,
         classification: "PERSONAL",
-        maxOutputTokens: Math.min(8000, count * 380),
+        maxOutputTokens: Math.min(8000, count * 420),
         systemInstruction: [
           "Generate strictly technical, practical, professional Arabic assessment questions in the supplied specialtyName and subSpecialties only.",
           "CRITICAL RULE: Every question MUST test hands-on professional/engineering competency, architecture, debugging, tools, or applied methodology in the exact specialty.",
           "STRICTLY FORBIDDEN: Never generate general entertainment trivia, pop-culture questions, history dates, console release years, or famous character/company trivia (for example, in Game Development / Unity / Unreal, NEVER ask about Super Mario, PlayStation release dates, Nintendo history, Pac-Man, or Pong — instead ask strictly about Unity Engine architecture, C# scripting, MonoBehaviour lifecycle, physics/RigidBody, shaders, Draw Calls/profiling, NavMesh, ScriptableObjects, Prefabs, and memory management).",
           "Do not use programming questions for non-technical disciplines (such as law, accounting, design, or marketing).",
-          "Each question must have four distinct, plausible technical options, exactly one correctOptionId, and a specific technical topic.",
+          "CRITICAL ANTI-CHEAT OPTION LENGTH RULE: All four options (a, b, c, d) in EVERY question MUST have balanced, closely matched character length and word count (each option MUST be 6 to 14 Arabic words with similar technical specificity). NEVER make the correct option noticeably longer, more detailed, or qualified with extra clauses while distractors are short phrases — write realistic, equally detailed wrong distractors so no candidate can guess the right answer by visual length.",
+          "Distribute correctOptionId evenly across a, b, c, and d.",
         ].join(" "),
         prompt: JSON.stringify({
           specialtyName: input.specialtyName,
@@ -39,7 +71,7 @@ export class AssessmentEngineService {
           previousQuestionTexts: data.questions.map(item => item.textAr),
         }),
       }, z.object({ questions: z.array(questionSchema).length(count) }).strict());
-      data.questions.push(...batch.questions);
+      data.questions.push(...batch.questions.map(shuffleQuestionOptions));
     }
     const uniqueQuestions = new Set<string>();
     for (const question of data.questions) {
