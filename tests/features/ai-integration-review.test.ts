@@ -125,4 +125,45 @@ describe("AI integration review fixes", () => {
     const byArabicName = await MarketplaceService.getRecommendations({ query: "", category: "تطوير المواقع", limit: 5, candidates } as never);
     assert.deepEqual(byArabicName.items, [], "an Arabic display name is not a category id");
   });
+
+  const reviewAnswer = (excerptFrom: (prompt: any) => string) => async (req: InferenceRequest) => {
+    const prompt = JSON.parse(req.prompt);
+    const first = prompt.evidence?.[0];
+    return JSON.stringify({
+      criteria: ACCREDITATION_RUBRIC.criteria.map(c => ({ id: c.id, score: 60, observation: "ملاحظة مبنية على الملف" })),
+      feedbackAr: "قراءة جزئية", findings: first ? [{ source: first.source, quote: excerptFrom(first.excerpt), observation: "ملاحظة" }] : [], recommendations: ["أضف توثيقًا"],
+    });
+  };
+  const PDF_BASE64 = "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAzMDAgMjAwXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA5MyA+PgpzdHJlYW0KQlQgL0YxIDEyIFRmIDIwIDEwMCBUZCAoY2hlY2tvdXQgZnVuY3Rpb24gc3VtcyBjYXJ0IGl0ZW0gcHJpY2VzIHdpdGggZGlzY291bnRzIGFuZCB0YXgpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzg0IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDU0CiUlRU9G";
+
+  test("accreditation attachments (synthetic): a readable PDF is read; a corrupt PDF, a corrupt image and an empty file are reported unreadable and never produce a score", async () => {
+    GeminiGateway.setMockHandler(reviewAnswer(excerpt => excerpt.slice(0, 18)));
+    const readable = await AccreditationService.evaluateAccreditation("a1", "سلة", undefined, [], "سلة شراء", undefined, { attachments: [`data:application/pdf;base64,${PDF_BASE64}`], specialtyName: "تطوير مواقع" });
+    assert.equal(readable.inspected, true);
+    assert.equal(typeof readable.aiScore, "number");
+    assert.ok(readable.evidence!.some(item => item.contentRead && /checkout/.test(item.excerpt)), "the PDF text was really extracted");
+
+    GeminiGateway.setMockHandler(async () => JSON.stringify({ feedbackAr: "وصف", strengths: [], recommendations: [] }));
+    for (const bad of [
+      `data:application/pdf;base64,${Buffer.from("this is not a pdf at all").toString("base64")}`,
+      `data:image/png;base64,${Buffer.from("not-a-png").toString("base64")}`,
+      `data:application/pdf;base64,${Buffer.alloc(0).toString("base64")}`,
+    ]) {
+      const out = await AccreditationService.evaluateAccreditation("a2", "سلة", undefined, [], "متجر إلكتروني كامل بواجهة ولوحة تحكم وبوابة دفع", undefined, { attachments: [bad], specialtyName: "تطوير مواقع" });
+      assert.equal(out.aiScore, null, bad.slice(0, 30));
+      assert.equal(out.aiQualityRating, null);
+      assert.equal(out.humanReviewRequired, true);
+      assert.ok(out.evidenceMissing!.length >= 1, "the unreadable file is reported");
+      assert.match(out.feedback!.summary, /تعذّر قراءة الأدلة/);
+    }
+  });
+
+  test("accreditation: a mix of one readable and one corrupt attachment scores only the readable one and says the other could not be read", async () => {
+    GeminiGateway.setMockHandler(reviewAnswer(excerpt => excerpt.slice(0, 18)));
+    const out = await AccreditationService.evaluateAccreditation("a3", "سلة", undefined, [], "سلة", undefined, { attachments: [`data:application/pdf;base64,${PDF_BASE64}`, `data:application/pdf;base64,${Buffer.from("garbage").toString("base64")}`], unreadAttachments: ["source.zip"] });
+    assert.equal(typeof out.aiScore, "number");
+    assert.equal(out.evidenceReviewed, 1);
+    assert.ok(out.evidenceMissing!.length >= 2, "the corrupt file and the file the website could not pass are both reported");
+    assert.match(out.feedback!.summary, /تعذّرت قراءة بعض المصادر/);
+  });
 });

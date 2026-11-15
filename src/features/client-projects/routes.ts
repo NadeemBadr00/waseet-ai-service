@@ -61,6 +61,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     const data = await ProjectDraftService.suggestBudgetAndMilestones(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
   };
+  fastify.post("/v1/ai/budget-milestones", handleBudgetMilestones); // alias kept: callers of the earlier path keep working
   fastify.post("/v1/ai/client/requests/budget-milestones", handleBudgetMilestones);
   fastify.post("/v1/ai/request-budget-milestones", handleBudgetMilestones);
 
