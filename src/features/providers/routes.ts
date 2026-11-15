@@ -4,8 +4,6 @@ import {
   BioSuggestInputSchema,
   BioEnhanceInputSchema,
   SkillsSuggestInputSchema,
-  IdentityInspectInputSchema,
-  IdentityCompareFieldsInputSchema,
 } from "./profile-metrics.types.js";
 import { ProfileMetricsService } from "./profile-metrics.service.js";
 import { AccreditationService } from "./accreditation.service.js";
@@ -36,30 +34,13 @@ export const providerRoutes: FastifyPluginAsync = async (fastify) => {
   };
   fastify.post("/v1/ai/profile/bio/enhance", handleBioEnhance);
   fastify.post("/v1/ai/profile/bio-enhance", handleBioEnhance);
+  fastify.post("/v1/ai/profile/enhance-bio", handleBioEnhance); // the alias that existed before this branch stays
 
   // AI-17: Suggest Skills
   fastify.post("/v1/ai/profile/skills", async (request) => {
     const input = SkillsSuggestInputSchema.parse(request.body);
     const data = await ProfileMetricsService.suggestSkills(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
-  });
-
-  // KYC Document Readability & Side Inspection (supports /v1/ai/identity/inspect-document and /v1/ai/identity-document-check)
-  const handleIdentityInspect = async (request: any) => {
-    const input = IdentityInspectInputSchema.parse(request.body);
-    const data = await ProfileMetricsService.inspectIdentityDocument(input);
-    const reqId = typeof request.headers?.["x-request-id"] === "string" ? request.headers["x-request-id"] : `req-${Date.now()}`;
-    return { success: true, requestId: reqId, data };
-  };
-  fastify.post("/v1/ai/identity/inspect-document", { bodyLimit: 12000000 }, handleIdentityInspect);
-  fastify.post("/v1/ai/identity-document-check", { bodyLimit: 12000000 }, handleIdentityInspect);
-
-  // KYC Identity Field Comparison (/v1/ai/identity/compare-fields) — echoes x-request-id in envelope
-  fastify.post("/v1/ai/identity/compare-fields", { bodyLimit: 12000000 }, async (request) => {
-    const input = IdentityCompareFieldsInputSchema.parse(request.body);
-    const data = await ProfileMetricsService.compareIdentityFields(input);
-    const reqId = typeof request.headers?.["x-request-id"] === "string" ? request.headers["x-request-id"] : `req-${Date.now()}`;
-    return { success: true, requestId: reqId, data };
   });
 
   // AI-06: Specialty Portfolio AI Review (supports /v1/ai/portfolio-review and /v1/ai/portfolio/review)
@@ -95,6 +76,8 @@ export const providerRoutes: FastifyPluginAsync = async (fastify) => {
       githubUrl: z.string().optional(),
       projectUrl: z.string().optional(),
       technologiesUsed: z.array(z.string()).default([]),
+      attachments: z.array(z.string().max(3_200_000)).max(3).default([]),
+      unreadAttachments: z.array(z.string().max(300)).max(10).default([]),
     }).parse({
       ...nestedSample,
       ...raw,
@@ -103,6 +86,8 @@ export const providerRoutes: FastifyPluginAsync = async (fastify) => {
       description: raw.description ?? nestedSample.description ?? undefined,
       githubUrl: raw.githubUrl ?? nestedSample.githubUrl ?? undefined,
       projectUrl: raw.projectUrl ?? nestedSample.projectUrl ?? undefined,
+      attachments: Array.isArray(raw.attachments) ? raw.attachments.filter((item: unknown) => typeof item === "string") : [],
+      unreadAttachments: Array.isArray(raw.unreadAttachments) ? raw.unreadAttachments.filter((item: unknown) => typeof item === "string") : [],
       technologiesUsed: Array.isArray(raw.technologiesUsed)
         ? raw.technologiesUsed
         : Array.isArray(nestedSample.technologiesUsed)
@@ -116,10 +101,11 @@ export const providerRoutes: FastifyPluginAsync = async (fastify) => {
       body.githubUrl,
       body.technologiesUsed,
       body.description,
-      body.projectUrl
+      body.projectUrl,
+      { attachments: body.attachments, unreadAttachments: body.unreadAttachments, specialtyName: body.specialtyName, specialtyId: body.specialtyId ?? body.providerSpecialtyId }
     );
     return { success: true, requestId: `req-${Date.now()}`, data };
   };
-  fastify.post("/v1/ai/accreditation-review", handleAccreditation);
-  fastify.post("/v1/ai/accreditation/review", handleAccreditation);
+  fastify.post("/v1/ai/accreditation-review", { bodyLimit: 12_000_000 }, handleAccreditation);
+  fastify.post("/v1/ai/accreditation/review", { bodyLimit: 12_000_000 }, handleAccreditation);
 };

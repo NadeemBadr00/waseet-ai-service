@@ -9,13 +9,12 @@ export class MarketplaceService {
     const ranked = candidates
       .filter(item => item.isPublished !== false && (!input.category || item.category === input.category))
       .map(item => {
-        const terms = new Set(normalizedTerms(`${String(item.title ?? "")} ${String(item.description ?? "")} ${String(item.category ?? "")} ${String((item as Record<string, unknown>).subSpecialty ?? "")}`));
+        const terms = new Set(normalizedTerms(`${String(item.title ?? "")} ${String(item.description ?? "")} ${String(item.category ?? "")} ${String((item as Record<string, unknown>).subSpecialty ?? "")} ${String((item as Record<string, unknown>).categoryLabel ?? "")}`));
         const termMatches = query.filter(term => terms.has(term)).length;
         const subSpecialtyBonus = input.subSpecialty && (item as Record<string, unknown>).subSpecialty === input.subSpecialty ? 2 : 0;
         const score = query.length > 0 ? termMatches + subSpecialtyBonus : 1 + subSpecialtyBonus;
-        const matchScore = query.length > 0
-          ? Math.min(99, Math.max(55, Math.round((termMatches / Math.max(1, query.length)) * 85) + subSpecialtyBonus * 5))
-          : 80;
+        // a measured overlap only: no floor, no ceiling, no constant. Nothing to measure (no query) = null, never an invented percentage.
+        const matchScore = query.length > 0 ? Math.round((termMatches / query.length) * 100) : null;
         const reason = termMatches > 0
           ? "تطابق مباشر مع كلمات البحث والتخصص المطلوب"
           : "خدمة مرشحة ضمن التصنيف المختار";
@@ -39,6 +38,7 @@ export class MarketplaceService {
       title: String(item.title),
       generationSource: "DETERMINISTIC",
       matchScore,
+      scoreBasis: matchScore === null ? ("NONE" as const) : ("QUERY_TERM_OVERLAP" as const),
       reason,
     }));
 
@@ -46,6 +46,7 @@ export class MarketplaceService {
       id: String(item.id),
       title: String(item.title),
       matchScore,
+      scoreBasis: matchScore === null ? ("NONE" as const) : ("QUERY_TERM_OVERLAP" as const),
       reason,
       generationSource: "DETERMINISTIC",
     }));

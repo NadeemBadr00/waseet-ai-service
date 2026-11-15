@@ -99,7 +99,7 @@ export class ProjectDraftService {
         "5. suggestedRequirements: 3 إلى 4 شروط إضافية واضحة يلتزم بها مقدم الخدمة (مثل تسليم الكود المصدري، التوثيق، التوافق مع الأجهزة، دعم فني بعد التسليم).",
         "6. suggestedOutputs: ملخص واضح للمخرجات النهائية المتوقعة التي سيتسلمها العميل.",
         "7. suggestedDurationDays: مدة التنفيذ المقترحة بالأيام (رقم صحيح واقعي بين 3 و90، أو احترم deliveryDays المرفق إن وجد).",
-        `8. suggestedMinBudget و suggestedMaxBudget: نطاق ميزانية تقديري واقعي بعملة (${input.currency || "SAR"}) يتناسب مع حجم المشروع.`,
+        `8. suggestedMinBudget و suggestedMaxBudget: نطاق ميزانية تقديري واقعي بعملة (${input.currency || "USD"}) يتناسب مع حجم المشروع.`,
         "9. suggestedMilestones: 3 مراحل دفع منطقية، لكل مرحلة name (اسم المرحلة) و pct (نسبة مئوية صحيحة بحيث يكون مجموع النسب يساوي 100% بالضبط).",
       ].join("\n"),
       signal,
@@ -163,7 +163,7 @@ export class ProjectDraftService {
       effort: "low",
       classification: "PERSONAL",
       prompt: JSON.stringify(input),
-      systemInstruction: `أنت مستشار تسعير وتخطيط مراحل عمل في موقع وسيط AI. بناءً على العنوان والوصف والتخصص المرفقين، اقترح: recommendedMinBudget و recommendedMaxBudget (أرقام صحيحة موجبة بعملة ${input.currency || "SAR"} بحيث recommendedMaxBudget >= recommendedMinBudget)، و suggestedDurationDays (مدة التنفيذ المقترحة بالأيام بين 1 و365، مع احترام expectedDurationDays إن أُرسل)، و suggestedMilestones (من 2 إلى 5 مراحل دفع لكل منها name و pct بحيث مجموع النسب 100%)، و complexityRating (Low أو Medium أو High)، و rationaleAr (شرح مختصر وواضح بالعربية لسبب تقدير الميزانية وتوزيع المراحل).`,
+      systemInstruction: `أنت مستشار تسعير وتخطيط مراحل عمل في موقع وسيط AI. بناءً على العنوان والوصف والتخصص المرفقين، اقترح: recommendedMinBudget و recommendedMaxBudget (أرقام صحيحة موجبة بعملة ${input.currency || "USD"} بحيث recommendedMaxBudget >= recommendedMinBudget)، و suggestedDurationDays (مدة التنفيذ المقترحة بالأيام بين 1 و365، مع احترام expectedDurationDays إن أُرسل)، و suggestedMilestones (من 2 إلى 5 مراحل دفع لكل منها name و pct بحيث مجموع النسب 100%)، و complexityRating (Low أو Medium أو High)، و rationaleAr (شرح مختصر وواضح بالعربية لسبب تقدير الميزانية وتوزيع المراحل).`,
       signal,
     }, z.object({
       recommendedMinBudget: z.number().int().min(50).max(500000),
@@ -188,7 +188,7 @@ export class ProjectDraftService {
     return {
       recommendedMinBudget: minB,
       recommendedMaxBudget: maxB,
-      suggestedDurationDays: input.expectedDurationDays && input.expectedDurationDays > 0 ? input.expectedDurationDays : data.suggestedDurationDays,
+      suggestedDurationDays: (input.expectedDurationDays ?? input.deliveryDays) && (input.expectedDurationDays ?? input.deliveryDays)! > 0 ? (input.expectedDurationDays ?? input.deliveryDays)! : data.suggestedDurationDays,
       suggestedMilestones: normalizedMilestones,
       complexityRating: data.complexityRating,
       rationaleAr: data.rationaleAr,

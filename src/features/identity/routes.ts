@@ -15,12 +15,15 @@ export const identityRoutes: FastifyPluginAsync = async (fastify) => {
     return { success: true, requestId, data };
   });
 
-  fastify.post("/v1/ai/identity/inspect-document", { bodyLimit: IDENTITY_BODY_LIMIT }, async (request) => {
+  // one handler, two paths: the alias maps to the SAME original identity service and contract (never a second, model-written comparison)
+  const inspectDocument = async (request: { headers: Record<string, unknown>; body: unknown }) => {
     const headerReqId = typeof request.headers["x-request-id"] === "string" && request.headers["x-request-id"].trim()
       ? request.headers["x-request-id"].trim().slice(0, 200)
       : getTenantContext()?.requestId ?? `req-${Date.now()}`;
     const input = IdentityInspectInputSchema.parse(request.body);
     const data = await IdentityService.inspectDocument(input);
     return { success: true, requestId: headerReqId, data };
-  });
+  };
+  fastify.post("/v1/ai/identity/inspect-document", { bodyLimit: IDENTITY_BODY_LIMIT }, inspectDocument);
+  fastify.post("/v1/ai/identity-document-check", { bodyLimit: IDENTITY_BODY_LIMIT }, inspectDocument);
 };

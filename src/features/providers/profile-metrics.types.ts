@@ -27,16 +27,16 @@ export interface ProfileMetricsOutput {
 
 export const BioSuggestInputSchema = z.object({
   providerId: z.string().optional().default("provider"),
-  currentBio: z.string().optional(),
-  bio: z.string().optional(),
+  currentBio: z.string().max(2000).optional(),
+  bio: z.string().max(2000).optional(),
   jobTitle: z.string().max(200).optional(),
   specialtyName: z.string().max(200).optional(),
   subSpecialties: z.array(z.string()).max(30).optional(),
   experienceRange: z.string().max(200).optional(),
   existingSkills: z.array(z.string()).max(50).optional(),
-  specialties: z.array(z.string()).default([]),
+  specialties: z.array(z.string()).max(30).default([]),
   yearsOfExperience: z.number().nonnegative().default(0),
-  keyAchievements: z.array(z.string()).default([]),
+  keyAchievements: z.array(z.string()).max(30).default([]),
   maxLength: z.number().int().min(80).max(2000).default(500),
 });
 
@@ -44,12 +44,12 @@ export type BioSuggestInput = z.infer<typeof BioSuggestInputSchema>;
 
 export const BioEnhanceInputSchema = z.object({
   providerId: z.string().optional().default("provider"),
-  bio: z.string().optional(),
-  currentBio: z.string().optional(),
+  bio: z.string().max(2000).optional(),
+  currentBio: z.string().max(2000).optional(),
   jobTitle: z.string().max(200).optional(),
   specialtyName: z.string().max(200).optional(),
-  specialties: z.array(z.string()).default([]),
-  subSpecialties: z.array(z.string()).default([]),
+  specialties: z.array(z.string()).max(30).default([]),
+  subSpecialties: z.array(z.string()).max(30).default([]),
   existingSkills: z.array(z.string()).max(50).optional(),
   maxLength: z.number().int().min(80).max(2000).default(500),
 });
@@ -59,72 +59,14 @@ export type BioEnhanceInput = z.infer<typeof BioEnhanceInputSchema>;
 export const SkillsSuggestInputSchema = z.object({
   providerId: z.string().min(1),
   specialtyName: z.string().min(1),
-  subSpecialties: z.array(z.string()).optional(),
-  jobTitle: z.string().optional(),
-  availableSkills: z.array(z.string()).optional(),
+  subSpecialties: z.array(z.string().max(150)).max(30).optional(),
+  jobTitle: z.string().max(200).optional(),
+  availableSkills: z.array(z.string().max(120)).max(250).optional(),
   existingSkills: z.array(z.string()).default([]),
 });
 
 export type SkillsSuggestInput = z.infer<typeof SkillsSuggestInputSchema>;
 
-export const IdentityInspectInputSchema = z.object({
-  side: z.enum(["FRONT", "BACK"]),
-  image: z.string().min(10),
-  imageMimeType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]).default("image/jpeg"),
-  document: z.object({
-    country: z.string().optional(),
-    type: z.string().optional(),
-  }).optional(),
-  declared: z.object({
-    fullName: z.string().optional(),
-    birthDate: z.string().optional(),
-    nationalId: z.string().optional(),
-  }).optional(),
-});
-
-export type IdentityInspectInput = z.infer<typeof IdentityInspectInputSchema>;
-
-export interface IdentityInspectOutput {
-  status: "CLEAR_VALID" | "NEEDS_ATTENTION" | "NOT_ID_DOCUMENT" | "UNREADABLE";
-  isIdentityDocument: boolean;
-  detectedSide: "FRONT" | "BACK" | "UNKNOWN";
-  sideMatchesExpected: boolean;
-  readability: "CLEAR" | "BLURRY" | "PARTIAL" | "UNREADABLE";
-  summaryAr: string;
-  warningsAr: string[];
-  fields?: {
-    fullName?: "MATCH" | "MISMATCH" | "COULD_NOT_VERIFY";
-    birthDate?: "MATCH" | "MISMATCH" | "COULD_NOT_VERIFY";
-    nationalId?: "MATCH" | "MISMATCH" | "COULD_NOT_VERIFY";
-  };
-  advisoryOnly: true;
-}
-
-export const IdentityCompareFieldsInputSchema = z.object({
-  image: z.object({
-    mimeType: z.string().min(3),
-    data: z.string().min(10),
-  }),
-  declared: z.object({
-    name: z.string().default(""),
-    birthDate: z.string().default(""),
-    nationalId: z.string().default(""),
-  }),
-  document: z.record(z.string(), z.unknown()).optional(),
-});
-
-export type IdentityCompareFieldsInput = z.infer<typeof IdentityCompareFieldsInputSchema>;
-
-export interface IdentityCompareFieldsOutput {
-  fields: {
-    name: "MATCH" | "MISMATCH" | "UNREADABLE";
-    birthDate: "MATCH" | "MISMATCH" | "UNREADABLE";
-    nationalId: "MATCH" | "MISMATCH" | "UNREADABLE";
-  };
-  faceMatch: "NOT_CHECKED";
-  liveness: "NOT_CHECKED";
-  documentAuthenticity: "NOT_CHECKED";
-}
 
 export interface PortfolioSampleItem {
   title: string;
@@ -177,6 +119,16 @@ export interface AccreditationReviewOutput {
   basis: string;
   evidence?: ContentEvidence[];
   unavailable?: string[];
+  /** how many readable sources / images the review really saw, and what it could not read */
+  evidenceReviewed?: number;
+  evidenceMissing?: string[];
+  /** always true: the final accreditation decision is human */
+  humanReviewRequired?: boolean;
+  rubric?: {
+    version: string;
+    basis: "PROVISIONAL_WEIGHTS";
+    criteria: Array<{ id: string; labelAr: string; weight: number; score: number; observation: string }>;
+  };
   evaluation: {
     aiScore: number | null;
     status: "AI_VERIFIED" | "NEEDS_REVISION" | "REJECTED" | "UNVERIFIED";

@@ -55,7 +55,7 @@ export interface ProviderMatchingOutput {
 
 export const ProjectFitInputSchema = z.object({
   projectId: z.string().min(1),
-  currency: z.string().length(3).default("SAR"),
+  currency: z.string().length(3).default("USD"),
   providerSpecialty: z.string().optional(),
   providerRate: z.number().positive().optional(),
   project: z.object({
@@ -90,7 +90,10 @@ export const MarketplaceRecommendationInputSchema = z.object({
     id: z.string().min(1),
     title: z.string().min(1),
     description: z.string().optional(),
+    /** the website's stable category id/slug: the ONLY value compared with `category` (never an Arabic display name) */
     category: z.string().optional(),
+    /** display name of the category, used for text matching only */
+    categoryLabel: z.string().optional(),
     subSpecialty: z.string().optional(),
     price: z.number().optional(),
     deliveryDays: z.number().optional(),
@@ -101,11 +104,15 @@ export const MarketplaceRecommendationInputSchema = z.object({
 
 export type MarketplaceRecommendationInput = z.infer<typeof MarketplaceRecommendationInputSchema>;
 
+/** How `matchScore` was obtained. `QUERY_TERM_OVERLAP` = share of the query's words found in the service text (a keyword overlap, not a quality rating); null score = nothing was measured. */
+export type MarketplaceScoreBasis = "QUERY_TERM_OVERLAP" | "NONE";
+
 export interface MarketplaceItem {
   id: string;
   title: string;
   generationSource: string;
-  matchScore?: number;
+  matchScore: number | null;
+  scoreBasis: MarketplaceScoreBasis;
   reason?: string;
 }
 
@@ -114,7 +121,8 @@ export interface MarketplaceRecommendationOutput {
   recommendations?: Array<{
     id: string;
     title: string;
-    matchScore: number;
+    matchScore: number | null;
+    scoreBasis: MarketplaceScoreBasis;
     reason: string;
     generationSource: string;
   }>;

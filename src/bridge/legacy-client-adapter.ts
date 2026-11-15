@@ -14,7 +14,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
       title: z.string().min(1),
       description: z.string().min(1),
       specialtyName: z.string().default("تطوير برمجيات"),
-      currency: z.string().default("SAR"),
+      currency: z.string().default("USD"),
     }).parse(request.body);
     const data = await ProjectDraftService.suggestDraft(body);
     return { success: true, data };
@@ -37,7 +37,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
       title: z.string().min(1),
       description: z.string().min(1),
       totalAmount: z.number().positive(),
-      currency: z.string().default("SAR"),
+      currency: z.string().default("USD"),
     }).parse(request.body);
     const data = await MilestonesService.suggestMilestones(body);
     return { success: true, data };
@@ -48,7 +48,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
     const body = z.object({
       title: z.string().min(1),
       description: z.string().min(1),
-      currency: z.string().default("SAR"),
+      currency: z.string().default("USD"),
     }).parse(request.body);
     const data = await MilestonesService.analyzeProject(body);
     return { success: true, data };

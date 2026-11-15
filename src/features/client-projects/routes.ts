@@ -164,7 +164,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
         scopeSummary: z.string().min(15),
         durationDays: z.number().int().min(1),
         budgetAmount: z.number().min(0),
-        currency: z.string().default("SAR"),
+        currency: z.string().default("USD"),
         milestonesCount: z.number().int().min(1).default(1),
         milestonesSummary: z.string().optional(),
         rating: z.number().min(0).max(5),

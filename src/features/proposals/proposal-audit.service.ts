@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateValidated, scoreSchema, textSchema, textListSchema } from "../../core/security/model-output.js";
+import { generateValidated, featureError, scoreSchema, textSchema, textListSchema } from "../../core/security/model-output.js";
 import type { ProposalSuggestInput, ProposalSuggestOutput, ProposalAuditInput } from "./proposal.types.js";
 
 const structuredAuditItemSchema = z
@@ -13,6 +13,12 @@ const structuredAuditItemSchema = z
 
 export class ProposalAuditService {
   public static async suggestProposal(input: ProposalSuggestInput): Promise<ProposalSuggestOutput> {
+    const rawTitle = (input.currentTitle ?? "").trim();
+    const rawMessage = (input.currentMessage ?? "").trim();
+    if (!rawTitle && !rawMessage) {
+      throw featureError("AI_NOT_ENOUGH_DATA", "يرجى كتابة مسودة مبدئية لعنوان وتفاصيل العرض أولاً ليقوم الذكاء الاصطناعي بتحسين صياغتها.", 422);
+    }
+
     const cleanLine = (s: string) =>
       s
         .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -169,7 +175,7 @@ export class ProposalAuditService {
       data.triPartyComparison?.marketPriceAlignment ??
       "لا توجد أدلة تسعير سوقي.";
 
-    const draftPrice = input.proposalDraft?.price ? `${input.proposalDraft.price} ر.س` : "غير محدد";
+    const draftPrice = input.proposalDraft?.price ? `${input.proposalDraft.price} $` : "غير محدد";
     const draftDuration = input.proposalDraft?.durationDays ? `${input.proposalDraft.durationDays} يوم` : "غير محدد";
     const draftMilestones = input.proposalDraft?.milestonesCount ? `${input.proposalDraft.milestonesCount} مراحل` : "غير محدد";
 

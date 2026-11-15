@@ -4,7 +4,7 @@ export const ProposalSuggestInputSchema = z.object({
   projectId: z.string().min(1),
   currentTitle: z.string().optional().default(""),
   currentMessage: z.string().optional().default(""),
-  currency: z.string().length(3).default("SAR"),
+  currency: z.string().length(3).default("USD"),
   project: z.object({
     budgetMin: z.number().optional(),
     budgetMax: z.number().optional(),

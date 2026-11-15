@@ -75,7 +75,7 @@ export const legacyProviderAdapterRoutes: FastifyPluginAsync = async (fastify) =
       projectId: z.string().min(1),
       currentTitle: z.string().min(1),
       currentMessage: z.string().min(1),
-      currency: z.string().default("SAR"),
+      currency: z.string().default("USD"),
       project: z.object({
         budgetMin: z.number().optional(),
         budgetMax: z.number().optional(),
@@ -134,7 +134,7 @@ export const legacyProviderAdapterRoutes: FastifyPluginAsync = async (fastify) =
   // Legacy AI.pdf §14: GET /api/assistant/analyze-project/:projectId
   fastify.get("/api/assistant/analyze-project/:projectId", async (request) => {
     const params = z.object({ projectId: z.string() }).parse(request.params);
-    const data = await MatchingService.analyzeProjectFit({ projectId: params.projectId, currency: "SAR" });
+    const data = await MatchingService.analyzeProjectFit({ projectId: params.projectId, currency: "USD" });
     return { success: true, data };
   });
 
@@ -202,7 +202,7 @@ export const legacyProviderAdapterRoutes: FastifyPluginAsync = async (fastify) =
       title: z.string().min(1),
       description: z.string().min(1),
       category: z.string().default("خدمات برمجية"),
-      pricing: z.object({ amount: z.number().positive(), currency: z.string().default("SAR") }),
+      pricing: z.object({ amount: z.number().positive(), currency: z.string().default("USD") }),
     }).parse(request.body);
     const data = await BusinessModelService.auditModel(body);
     return { success: true, data };

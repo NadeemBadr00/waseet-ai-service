@@ -4,7 +4,7 @@ export const MilestoneSuggestionInputSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   totalAmount: z.number().positive(),
-  currency: z.string().length(3).default("SAR"),
+  currency: z.string().length(3).default("USD"),
   deliveryDays: z.number().positive().optional(),
 });
 
@@ -27,7 +27,7 @@ export const ProjectAnalysisInputSchema = z.object({
   description: z.string().min(1),
   budget: z.number().positive().optional(),
   deadlineDays: z.number().positive().optional(),
-  currency: z.string().length(3).default("SAR"),
+  currency: z.string().length(3).default("USD"),
 });
 
 export type ProjectAnalysisInput = z.infer<typeof ProjectAnalysisInputSchema>;

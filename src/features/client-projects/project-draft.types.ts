@@ -22,7 +22,7 @@ export const RequestDraftInputSchema = z.object({
   subSpecialties: z.array(z.string()).optional(),
   availableSkills: z.array(z.string()).optional(),
   deliveryDays: z.number().int().positive().nullable().optional(),
-  currency: z.string().length(3).default("SAR"),
+  currency: z.string().length(3).default("USD"),
 }).refine(
   (d) => Boolean(d.title.trim() || d.description.trim() || d.specialtyName.trim()),
   { message: "At least one of title, description, or specialtyName is required" }
@@ -54,7 +54,9 @@ export const BudgetMilestonesInputSchema = z.object({
   subSpecialties: z.array(z.string()).optional(),
   skills: z.array(z.string()).optional(),
   expectedDurationDays: z.number().int().positive().nullable().optional(),
-  currency: z.string().length(3).default("SAR"),
+  /** the same value under the name the website's draft uses; both are honoured */
+  deliveryDays: z.number().int().positive().nullable().optional(),
+  currency: z.string().length(3).default("USD"),
 });
 
 export type BudgetMilestonesInput = z.infer<typeof BudgetMilestonesInputSchema>;
