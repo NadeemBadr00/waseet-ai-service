@@ -35,7 +35,7 @@ export const TtsSynthesizeInputSchema = z.object({
   text: z.string().min(1).max(5000),
   model: TtsModelEnum.default("gemini-3.8-flash-lite-tts"),
   voice: TtsVoiceEnum.default("Puck"),
-  dialect: TtsDialectEnum.default("egyptian"),
+  dialect: TtsDialectEnum.default("saudi"),
   style: z.string().max(1000).optional(),
   speakingRate: z.enum(["slow", "normal", "rapid"]).default("normal"),
   mimeType: z.enum(["audio/wav", "audio/l16", "audio/mulaw", "audio/alaw"]).default("audio/wav"),

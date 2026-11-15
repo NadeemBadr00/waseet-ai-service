@@ -4,7 +4,7 @@ export const MilestoneSuggestionInputSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
   totalAmount: z.number().positive(),
-  currency: z.string().length(3).default("USD"),
+  currency: z.string().length(3).default("SAR"),
   deliveryDays: z.number().positive().optional(),
 });
 
@@ -25,7 +25,9 @@ export interface MilestoneSuggestionOutput {
 export const ProjectAnalysisInputSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
-  currency: z.string().length(3).default("USD"),
+  budget: z.number().positive().optional(),
+  deadlineDays: z.number().positive().optional(),
+  currency: z.string().length(3).default("SAR"),
 });
 
 export type ProjectAnalysisInput = z.infer<typeof ProjectAnalysisInputSchema>;
@@ -33,7 +35,7 @@ export type ProjectAnalysisInput = z.infer<typeof ProjectAnalysisInputSchema>;
 export interface ProjectAnalysisOutput {
   clarityScore: number;
   feasibilityScore: number | null;
-  marketFitRating: "Good" | "Moderate" | "Challenging" | "Unknown";
+  marketFitRating: "High" | "Medium" | "Low" | "Good" | "Moderate" | "Challenging" | "Unknown";
   scoreBasis?: string;
   executiveSummary: string;
   strengths: string[];

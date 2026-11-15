@@ -29,7 +29,29 @@ export async function writeSse(reply: FastifyReply, event: string, value: unknow
 export const runtimeRoutes: FastifyPluginAsync = async app => {
   const runtime = new TaskRuntime(); app.addHook("onClose", async () => runtime.stop());
   app.get("/v1/ai/capabilities", async (_request, reply) => { scope(); return reply.header("Cache-Control", "private, no-store").send({ success: true, data: capabilities() }); });
-  app.post("/v1/ai/gateway/generate", { bodyLimit: 200000 }, async (request, reply) => { scope(); const client = clientSignal(request, reply); try { const result = await GeminiGateway.generate(requestFor(request.body, client.signal)); const project = ProjectPoolManager.getProjects().find(p => p.alias === result.projectAliasUsed); return { success: true, data: { text: result.text, tokensIn: result.usage?.promptTokens ?? null, tokensOut: result.usage?.completionTokens ?? null, model: result.modelUsed, projectId: project ? ProjectPoolManager.scope(project) : null, measured: result.usageMeasured === true } }; } finally { client.dispose(); } });
+  const handleGenerate = async (request: FastifyRequest, reply: FastifyReply) => {
+    scope();
+    const client = clientSignal(request, reply);
+    try {
+      const result = await GeminiGateway.generate(requestFor(request.body, client.signal));
+      const project = ProjectPoolManager.getProjects().find(p => p.alias === result.projectAliasUsed);
+      return {
+        success: true,
+        data: {
+          text: result.text,
+          tokensIn: result.usage?.promptTokens ?? null,
+          tokensOut: result.usage?.completionTokens ?? null,
+          model: result.modelUsed,
+          projectId: project ? ProjectPoolManager.scope(project) : null,
+          measured: result.usageMeasured === true,
+        },
+      };
+    } finally {
+      client.dispose();
+    }
+  };
+  app.post("/v1/ai/gateway/generate", { bodyLimit: 200000 }, handleGenerate);
+  app.post("/v1/ai/generate", { bodyLimit: 200000 }, handleGenerate);
   app.post("/v1/ai/gateway/stream", { bodyLimit: 200000 }, async (request, reply) => { scope(); const input = requestFor(request.body); if (input.responseJsonSchema) throw new AiProviderError("AI_STRUCTURED_STREAM_NOT_PUBLIC", 400); const client = clientSignal(request, reply); openSse(reply); try { await writeSse(reply, "start", { status: "streaming" }, client.signal); for await (const item of GeminiGateway.generateStream({ ...input, signal: client.signal })) await writeSse(reply, item.usage ? "usage" : "chunk", { text: item.chunk, model: item.modelUsed, usage: item.usage }, client.signal); await writeSse(reply, "done", { status: "completed" }, client.signal); } catch (error) { if (!client.signal.aborted) await writeSse(reply, "error", { code: (error as { code?: string }).code ?? "AI_STREAM_FAILED", status: "failed" }, client.signal); } finally { client.dispose(); reply.raw.end(); } });
   app.post("/v1/ai/stt/transcribe", { bodyLimit: 14500000 }, async (request, reply) => { scope(); const client = clientSignal(request, reply); try { return { success: true, data: await VoiceGateway.transcribe(request.body, { signal: client.signal }) }; } finally { client.dispose(); } });
   app.post("/v1/ai/live/token", async (request, reply) => { const actor = scope(), client = clientSignal(request, reply); try { return reply.header("Cache-Control", "private, no-store").send({ success: true, data: await VoiceGateway.liveToken(request.body, `${actor.tenantId}:${actor.userId}`, { signal: client.signal }) }); } finally { client.dispose(); } });

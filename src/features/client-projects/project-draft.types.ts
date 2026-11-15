@@ -22,7 +22,7 @@ export const RequestDraftInputSchema = z.object({
   subSpecialties: z.array(z.string()).optional(),
   availableSkills: z.array(z.string()).optional(),
   deliveryDays: z.number().int().positive().nullable().optional(),
-  currency: z.string().length(3).default("USD"),
+  currency: z.string().length(3).default("SAR"),
 }).refine(
   (d) => Boolean(d.title.trim() || d.description.trim() || d.specialtyName.trim()),
   { message: "At least one of title, description, or specialtyName is required" }
@@ -40,36 +40,31 @@ export interface RequestDraftOutput {
   suggestedMilestones?: Array<{ name: string; pct: number }>;
   recommendedMinBudget: number | null;
   recommendedMaxBudget: number | null;
-  suggestedDurationDays: number;
+  suggestedDurationDays: number | null;
   estimationBasis?: string;
   complexityRating: "Low" | "Medium" | "High";
   personalizedNote: string;
   aiMatchScoreEstimate: number | null;
 }
 
-export const RequestBudgetSuggestInputSchema = z.object({
-  title: z.string().optional().default(""),
+export const BudgetMilestonesInputSchema = z.object({
+  title: z.string().min(1),
   description: z.string().optional().default(""),
   specialtyName: z.string().optional().default(""),
   subSpecialties: z.array(z.string()).optional(),
-  requiredSkills: z.array(z.string()).optional(),
-  requirements: z.array(z.string()).optional(),
-  outputs: z.string().optional(),
-  deliveryDays: z.number().int().positive().nullable().optional(),
-  currency: z.string().length(3).default("USD"),
-}).refine(
-  (d) => Boolean(d.title.trim() || d.description.trim() || d.specialtyName.trim()),
-  { message: "At least one of title, description, or specialtyName is required" }
-);
+  skills: z.array(z.string()).optional(),
+  expectedDurationDays: z.number().int().positive().nullable().optional(),
+  currency: z.string().length(3).default("SAR"),
+});
 
-export type RequestBudgetSuggestInput = z.infer<typeof RequestBudgetSuggestInputSchema>;
+export type BudgetMilestonesInput = z.infer<typeof BudgetMilestonesInputSchema>;
 
-export interface RequestBudgetSuggestOutput {
+export interface BudgetMilestonesOutput {
   recommendedMinBudget: number;
   recommendedMaxBudget: number;
   suggestedDurationDays: number;
   suggestedMilestones: Array<{ name: string; pct: number }>;
   complexityRating: "Low" | "Medium" | "High";
   rationaleAr: string;
-  estimationBasis: string;
+  estimationBasis?: string;
 }

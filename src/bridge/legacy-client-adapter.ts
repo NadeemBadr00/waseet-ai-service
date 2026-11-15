@@ -14,7 +14,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
       title: z.string().min(1),
       description: z.string().min(1),
       specialtyName: z.string().default("تطوير برمجيات"),
-      currency: z.string().default("USD"),
+      currency: z.string().default("SAR"),
     }).parse(request.body);
     const data = await ProjectDraftService.suggestDraft(body);
     return { success: true, data };
@@ -37,7 +37,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
       title: z.string().min(1),
       description: z.string().min(1),
       totalAmount: z.number().positive(),
-      currency: z.string().default("USD"),
+      currency: z.string().default("SAR"),
     }).parse(request.body);
     const data = await MilestonesService.suggestMilestones(body);
     return { success: true, data };
@@ -48,7 +48,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
     const body = z.object({
       title: z.string().min(1),
       description: z.string().min(1),
-      currency: z.string().default("USD"),
+      currency: z.string().default("SAR"),
     }).parse(request.body);
     const data = await MilestonesService.analyzeProject(body);
     return { success: true, data };
@@ -56,7 +56,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
 
   // Legacy AI.pdf §15: POST /api/marketplace/ai-recommendations
   fastify.post("/api/marketplace/ai-recommendations", async (request) => {
-    const body = z.object({ query: z.string().min(1), limit: z.number().int().positive().default(6) }).parse(request.body);
+    const body = z.object({ query: z.string().optional().default(""), limit: z.number().int().positive().default(6) }).parse(request.body ?? {});
     const data = await MarketplaceService.getRecommendations(body);
     return { success: true, data };
   });

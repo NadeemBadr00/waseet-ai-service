@@ -55,7 +55,7 @@ export interface ProviderMatchingOutput {
 
 export const ProjectFitInputSchema = z.object({
   projectId: z.string().min(1),
-  currency: z.string().length(3).default("USD"),
+  currency: z.string().length(3).default("SAR"),
   providerSpecialty: z.string().optional(),
   providerRate: z.number().positive().optional(),
   project: z.object({
@@ -63,7 +63,10 @@ export const ProjectFitInputSchema = z.object({
     description: z.string().optional(),
     requirements: z.array(z.string()).optional(),
     budget: z.number().optional(),
+    budgetMin: z.number().optional(),
+    budgetMax: z.number().optional(),
     durationDays: z.number().optional(),
+    deliveryDays: z.number().optional(),
   }).optional(),
 });
 
@@ -79,10 +82,21 @@ export interface ProjectFitOutput {
 }
 
 export const MarketplaceRecommendationInputSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().optional().default(""),
   limit: z.number().int().positive().max(50).default(5),
   category: z.string().optional(),
-  candidates: z.array(z.object({ id: z.string().min(1), title: z.string().min(1), description: z.string().optional(), category: z.string().optional(), isPublished: z.boolean().optional() })).max(200).optional(),
+  subSpecialty: z.string().optional(),
+  candidates: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    category: z.string().optional(),
+    subSpecialty: z.string().optional(),
+    price: z.number().optional(),
+    deliveryDays: z.number().optional(),
+    aiScore: z.number().nullable().optional(),
+    isPublished: z.boolean().optional(),
+  })).max(200).optional(),
 });
 
 export type MarketplaceRecommendationInput = z.infer<typeof MarketplaceRecommendationInputSchema>;
@@ -91,8 +105,19 @@ export interface MarketplaceItem {
   id: string;
   title: string;
   generationSource: string;
+  matchScore?: number;
+  reason?: string;
 }
 
 export interface MarketplaceRecommendationOutput {
   items: MarketplaceItem[];
+  recommendations?: Array<{
+    id: string;
+    title: string;
+    matchScore: number;
+    reason: string;
+    generationSource: string;
+  }>;
+  bannerInsight?: string;
+  smartSearchTags?: string[];
 }
