@@ -94,7 +94,7 @@ function decodeInlineContent(raw: string, index: number): { body: Buffer; mimeTy
   return { body, mimeType, source };
 }
 /** An image is evidence only when its container decodes. A bad one is reported (never silently dropped, never sent on) so a caller cannot mistake "attached" for "read". */
-function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out: VisualAttachment[], unavailable: string[]): void {
+async function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out: VisualAttachment[], unavailable: string[]): Promise<void> {
   if (out.length >= 2 || body.byteLength > 2 * 1024 * 1024) return;
   const normalizedMime = /^image\/(?:jpeg|png|webp)$/i.test(mimeType)
     ? mimeType.toLowerCase()
@@ -103,7 +103,7 @@ function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out:
     : /\.webp(?:\?|$)/i.test(source) ? "image/webp"
     : null;
   if (!normalizedMime) return;
-  const check = checkImage(body, normalizedMime);
+  const check = await checkImage(body, normalizedMime);
   if (!check.ok) { unavailable.push(`IMAGE_NOT_DECODABLE:${source}:${check.reason}`); return; }
   out.push({ source, mimeType: normalizedMime, data: body.toString("base64"), byteLength: body.byteLength });
 }
@@ -118,7 +118,7 @@ export class ContentInspector {
         const inlineSource = `uploaded-file://inline/${index + 1}`;
         try {
           const { body, mimeType, source } = decodeInlineContent(raw, index);
-          maybeCollectVisual(body, mimeType, source, visualAttachments, unavailable);
+          await maybeCollectVisual(body, mimeType, source, visualAttachments, unavailable);
           const extracted = await extractContent(body, mimeType, source, signal);
           evidence.push(...extracted);
           if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${source}`);
@@ -148,7 +148,7 @@ export class ContentInspector {
           if (tree.truncated || (tree.tree?.length ?? 0) > files.length) unavailable.push(`REPOSITORY_PARTIAL:${raw}`);
         } else {
           const fetched = await fetchBounded(url.href, signal);
-          maybeCollectVisual(fetched.body, fetched.mimeType, url.href, visualAttachments, unavailable);
+          await maybeCollectVisual(fetched.body, fetched.mimeType, url.href, visualAttachments, unavailable);
           const extracted = await extractContent(fetched.body, fetched.mimeType, url.href, signal);
           evidence.push(...extracted);
           if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${url.href.split("?")[0]}`);

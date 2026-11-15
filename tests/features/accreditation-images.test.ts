@@ -1,6 +1,7 @@
 import { test, describe, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
+import sharp from "sharp";
 import { authHeaders, buildApp, paidFixture, GeminiGateway, forbidNetwork } from "../helpers/ai-fixtures.js";
 import type { InferenceRequest } from "../../src/router/types.js";
 import { checkImage } from "../../src/core/security/image-validation.js";
@@ -35,14 +36,86 @@ describe("accreditation images: sent is not read", () => {
   };
   const review = (attachments: string[]) => AccreditationService.evaluateAccreditation("img-1", "تطبيق", undefined, [], "وصف تطبيق كامل وواضح", undefined, { attachments, specialtyName: "تطوير تطبيقات" });
 
-  test("the structural check accepts a real PNG and JPEG and rejects signature-only / truncated / random files of any size above 32 bytes", () => {
-    assert.equal(checkImage(makePng(), "image/png").ok, true);
-    assert.equal(checkImage(VALID_JPEG, "image/jpeg").ok, true);
-    assert.equal(checkImage(Buffer.concat([PNG_SIGNATURE, garbage(120)]), "image/png").ok, false, "PNG signature followed by garbage");
-    assert.equal(checkImage(makePng().subarray(0, 60), "image/png").ok, false, "truncated PNG");
-    assert.equal(checkImage(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), garbage(150)]), "image/jpeg").ok, false, "JPEG start then garbage");
-    assert.equal(checkImage(garbage(200), "image/webp").ok, false);
-    assert.equal(checkImage(makePng(), "image/gif").ok, false, "an unsupported type is not accepted");
+  const gradient = (format: "png" | "jpeg" | "webp", options: Record<string, unknown> = {}) => {
+    const width = 48, height = 32, raw = Buffer.alloc(width * height * 3);
+    for (let i = 0; i < raw.length; i++) raw[i] = (i * 5 + (i >> 6)) & 255;
+    const image = sharp(raw, { raw: { width, height, channels: 3 } });
+    return (format === "png" ? image.png() : format === "jpeg" ? image.jpeg({ quality: 80 }) : image.webp(options)).toBuffer();
+  };
+
+  test("a REAL decoder opens sound PNG / JPEG / WebP (lossy and lossless) and the decoded size is exact", async () => {
+    for (const [format, mime] of [["png", "image/png"], ["jpeg", "image/jpeg"], ["webp", "image/webp"]] as const) {
+      const check = await checkImage(await gradient(format), mime);
+      assert.deepEqual([check.ok, check.width, check.height], [true, 48, 32], `${format}: ${check.reason}`);
+    }
+    assert.equal((await checkImage(await gradient("webp", { lossless: true }), "image/webp")).ok, true, "lossless WebP");
+    assert.equal((await checkImage(makePng(), "image/png")).ok, true);
+    assert.equal((await checkImage(VALID_JPEG, "image/jpeg")).ok, true);
+  });
+
+  test("TRUNCATED files of all three formats are refused (cut at 50% and just before the end)", async () => {
+    for (const [format, mime] of [["png", "image/png"], ["jpeg", "image/jpeg"], ["webp", "image/webp"]] as const) {
+      const whole = await gradient(format);
+      for (const cut of [Math.floor(whole.length / 2), whole.length - 8]) {
+        const check = await checkImage(whole.subarray(0, cut), mime);
+        assert.equal(check.ok, false, `${format} cut at ${cut}/${whole.length}`);
+      }
+    }
+  });
+
+  test("a 30-byte WebP that is only RIFF + WEBP + VP8X (no image data) is NOT an image", async () => {
+    const riff = Buffer.alloc(30);
+    riff.write("RIFF", 0); riff.writeUInt32LE(22, 4); riff.write("WEBP", 8); riff.write("VP8X", 12); riff.writeUInt32LE(10, 16);
+    riff.writeUIntLE(31, 24, 3); riff.writeUIntLE(31, 27, 3); // claims a 32x32 canvas
+    const check = await checkImage(riff, "image/webp");
+    assert.equal(check.ok, false);
+    assert.equal((await checkImage(Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 "), garbage(60)]), "image/webp")).ok, false);
+  });
+
+  test("a PNG decompression bomb (1x1, ~8 KB of IDAT that inflates to 8 MB) is refused before and instead of being expanded", async () => {
+    const header = Buffer.alloc(13); header.writeUInt32BE(1, 0); header.writeUInt32BE(1, 4); header[8] = 8; header[9] = 2;
+    const idat = deflateSync(Buffer.alloc(8 * 1024 * 1024));
+    assert.ok(idat.length < 12000, "the bomb is small on the wire (" + idat.length + " bytes)");
+    const bomb = Buffer.concat([PNG_SIGNATURE, chunk("IHDR", header), chunk("IDAT", idat), chunk("IEND", Buffer.alloc(0))]);
+    const started = Date.now();
+    const check = await checkImage(bomb, "image/png");
+    assert.equal(check.ok, false);
+    assert.equal(check.reason, "PNG_DECOMPRESSION_BOMB");
+    assert.ok(Date.now() - started < 1500, "refused quickly, not after inflating 8 MB");
+  });
+
+  test("huge declared dimensions are refused from the header (no pixel is produced), for PNG and for a real JPEG header", async () => {
+    const header = Buffer.alloc(13); header.writeUInt32BE(20000, 0); header.writeUInt32BE(20000, 4); header[8] = 8; header[9] = 2;
+    const png = Buffer.concat([PNG_SIGNATURE, chunk("IHDR", header), chunk("IDAT", deflateSync(Buffer.alloc(100))), chunk("IEND", Buffer.alloc(0))]);
+    assert.equal((await checkImage(png, "image/png")).reason, "IMAGE_TOO_LARGE");
+    const jpeg = await gradient("jpeg");
+    const forged = Buffer.from(jpeg);
+    for (let i = 2; i + 9 < forged.length; i++) if (forged[i] === 0xff && forged[i + 1] === 0xc0) { forged.writeUInt16BE(20000, i + 5); forged.writeUInt16BE(20000, i + 7); break; }
+    assert.equal((await checkImage(forged, "image/jpeg")).ok, false, "a JPEG whose header claims 20000x20000");
+  });
+
+  test("signature-only / garbage / truncated / unsupported files are still refused", async () => {
+    assert.equal((await checkImage(Buffer.concat([PNG_SIGNATURE, garbage(120)]), "image/png")).ok, false, "PNG signature followed by garbage");
+    assert.equal((await checkImage(makePng().subarray(0, 60), "image/png")).ok, false, "truncated PNG");
+    assert.equal((await checkImage(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), garbage(150)]), "image/jpeg")).ok, false, "JPEG start then garbage");
+    assert.equal((await checkImage(garbage(200), "image/webp")).ok, false);
+    assert.equal((await checkImage(await gradient("png"), "image/jpeg")).ok, false, "a PNG declared as JPEG");
+    assert.equal((await checkImage(makePng(), "image/gif")).ok, false, "an unsupported type is not accepted");
+  });
+
+  test("a bomb or a header-only WebP sent as an accreditation attachment is never sent to the model and never scored", async () => {
+    let modelCalls = 0;
+    GeminiGateway.setMockHandler(async () => { modelCalls += 1; return JSON.stringify({ feedbackAr: "وصف", strengths: [], recommendations: [] }); });
+    const header = Buffer.alloc(13); header.writeUInt32BE(1, 0); header.writeUInt32BE(1, 4); header[8] = 8; header[9] = 2;
+    const bomb = Buffer.concat([PNG_SIGNATURE, chunk("IHDR", header), chunk("IDAT", deflateSync(Buffer.alloc(8 * 1024 * 1024))), chunk("IEND", Buffer.alloc(0))]);
+    const riff = Buffer.alloc(30); riff.write("RIFF", 0); riff.writeUInt32LE(22, 4); riff.write("WEBP", 8); riff.write("VP8X", 12); riff.writeUInt32LE(10, 16);
+    for (const bad of [uri("image/png", bomb), uri("image/webp", riff)]) {
+      const out = await review([bad]);
+      assert.equal(out.aiScore, null);
+      assert.equal(out.inspected, false);
+      assert.ok(out.evidenceMissing!.some(item => item.startsWith("IMAGE_NOT_DECODABLE:")), JSON.stringify(out.evidenceMissing));
+    }
+    assert.equal(modelCalls, 2, "only the description-only commentary ran");
   });
 
   test("a valid PNG that the model confirms it read: inspected=true, the score is computed, sent and reviewed are counted separately", async () => {

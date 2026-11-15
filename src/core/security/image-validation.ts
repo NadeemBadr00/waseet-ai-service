@@ -1,82 +1,78 @@
 import { inflateSync } from "node:zlib";
+import sharp from "sharp";
 
 /**
- * Structural decode check for the images we accept as evidence (PNG / JPEG / WebP). "Sent to the model" is not "read": an image only counts when its container is
- * well formed (signature, dimensions, and the data a decoder needs), so a file that merely starts with the right bytes - or random bytes over 32 - is rejected here.
- * It does not judge content; it answers "could a decoder open this?".
+ * Evidence images are DECODED, not merely recognised. "Sent to the model" is not "read": an image counts only when a real decoder (libvips through sharp) opens the
+ * container and produces every pixel, within hard limits that are enforced while decoding:
+ *  - input size is capped by the caller (2 MB);
+ *  - pixel count is capped before any pixel is produced (`limitInputPixels`), so a 1x1 header can not hide a huge canvas and a 20000x20000 header is refused outright;
+ *  - the decoded raster must be exactly width x height x channels and under MAX_DECODED_BYTES;
+ *  - a PNG's compressed pixel stream is inflated with a hard output cap equal to what its own header allows (a few KB of IDAT that expands to megabytes is refused);
+ *  - truncated or damaged data fails (`failOn: "warning"`), only the first frame is read, and only png / jpeg / webp are accepted.
+ * It judges the container, never the content.
  */
 export interface ImageCheck { ok: boolean; width?: number; height?: number; reason?: string }
 
+export const MAX_IMAGE_PIXELS = 16_000_000;
+export const MAX_DECODED_BYTES = MAX_IMAGE_PIXELS * 4;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const MAX_PIXELS = 100_000_000;
+const FORMAT_FOR_MIME: Readonly<Record<string, "png" | "jpeg" | "webp">> = { "image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp" };
 
-function crc32(buffer: Buffer): number {
-  let crc = ~0;
-  for (const byte of buffer) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); }
-  return ~crc >>> 0;
+/** Bytes a PNG's pixel stream may legally inflate to, from its own header (filter byte per row included; Adam7 passes summed). null = header not understood. */
+function pngExpectedInflatedBytes(ihdr: Buffer): number | null {
+  const width = ihdr.readUInt32BE(0), height = ihdr.readUInt32BE(4), depth = ihdr[8]!, colorType = ihdr[9]!, interlace = ihdr[12]!;
+  const channels = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[colorType];
+  if (!channels || ![1, 2, 4, 8, 16].includes(depth) || !width || !height) return null;
+  const rowBytes = (w: number) => 1 + Math.ceil((w * channels * depth) / 8);
+  if (interlace === 0) return rowBytes(width) * height;
+  if (interlace !== 1) return null;
+  const passes: Array<[number, number, number, number]> = [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]];
+  let total = 0;
+  for (const [x0, y0, dx, dy] of passes) {
+    const passWidth = Math.ceil((width - x0) / dx), passHeight = Math.ceil((height - y0) / dy);
+    if (passWidth > 0 && passHeight > 0) total += rowBytes(passWidth) * passHeight;
+  }
+  return total;
 }
 
-function checkPng(body: Buffer): ImageCheck {
+/** The PNG data stream, inflated under a cap taken from the header: a decompression bomb is refused here, before the decoder ever sees it. */
+function pngBombGuard(body: Buffer): ImageCheck | null {
   if (body.length < 33 || !body.subarray(0, 8).equals(PNG_SIGNATURE)) return { ok: false, reason: "PNG_SIGNATURE" };
-  let offset = 8, width = 0, height = 0, sawIhdr = false, sawIend = false;
+  let offset = 8, expected: number | null = null, sawIend = false;
   const idat: Buffer[] = [];
   while (offset + 12 <= body.length) {
-    const length = body.readUInt32BE(offset), type = body.toString("ascii", offset + 4, offset + 8);
-    const end = offset + 12 + length;
+    const length = body.readUInt32BE(offset), type = body.toString("ascii", offset + 4, offset + 8), end = offset + 12 + length;
     if (end > body.length) return { ok: false, reason: "PNG_TRUNCATED" };
-    const data = body.subarray(offset + 8, offset + 8 + length);
-    if (crc32(body.subarray(offset + 4, offset + 8 + length)) !== body.readUInt32BE(offset + 8 + length)) return { ok: false, reason: "PNG_CRC" };
-    if (type === "IHDR") { if (length !== 13) return { ok: false, reason: "PNG_IHDR" }; width = data.readUInt32BE(0); height = data.readUInt32BE(4); sawIhdr = true; }
-    else if (!sawIhdr) return { ok: false, reason: "PNG_IHDR_FIRST" };
-    if (type === "IDAT") idat.push(data);
+    if (type === "IHDR") { if (length !== 13) return { ok: false, reason: "PNG_IHDR" }; if (body.readUInt32BE(offset + 8) * body.readUInt32BE(offset + 12) > MAX_IMAGE_PIXELS) return { ok: false, reason: "IMAGE_TOO_LARGE" }; expected = pngExpectedInflatedBytes(body.subarray(offset + 8, offset + 21)); if (expected === null) return { ok: false, reason: "PNG_HEADER" }; }
+    if (type === "IDAT") idat.push(body.subarray(offset + 8, offset + 8 + length));
     if (type === "IEND") { sawIend = true; break; }
     offset = end;
   }
-  if (!sawIhdr || !sawIend || !idat.length) return { ok: false, reason: "PNG_INCOMPLETE" };
-  if (!width || !height || width * height > MAX_PIXELS) return { ok: false, reason: "PNG_DIMENSIONS" };
-  try { inflateSync(Buffer.concat(idat)); } catch { return { ok: false, reason: "PNG_DATA" }; }
-  return { ok: true, width, height };
-}
-
-function checkJpeg(body: Buffer): ImageCheck {
-  if (body.length < 32 || body[0] !== 0xff || body[1] !== 0xd8) return { ok: false, reason: "JPEG_SIGNATURE" };
-  let offset = 2, width = 0, height = 0, sawScan = false;
-  while (offset + 4 <= body.length) {
-    if (body[offset] !== 0xff) return { ok: false, reason: "JPEG_MARKER" };
-    const marker = body[offset + 1]!;
-    if (marker === 0xff) { offset += 1; continue; }
-    if (marker === 0xd9) break;
-    if (marker === 0x00 || (marker >= 0xd0 && marker <= 0xd8) || marker === 0x01) { offset += 2; continue; }
-    const length = body.readUInt16BE(offset + 2);
-    if (length < 2 || offset + 2 + length > body.length) return { ok: false, reason: "JPEG_TRUNCATED" };
-    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
-      height = body.readUInt16BE(offset + 5); width = body.readUInt16BE(offset + 7);
-    }
-    if (marker === 0xda) { sawScan = true; break; }
-    offset += 2 + length;
+  if (expected === null || !idat.length || !sawIend) return { ok: false, reason: "PNG_INCOMPLETE" };
+  try {
+    const inflated = inflateSync(Buffer.concat(idat), { maxOutputLength: expected });
+    if (inflated.length !== expected) return { ok: false, reason: "PNG_DATA_LENGTH" };
+  } catch (error) {
+    return { ok: false, reason: (error as { code?: string }).code === "ERR_BUFFER_TOO_LARGE" ? "PNG_DECOMPRESSION_BOMB" : "PNG_DATA" };
   }
-  if (!width || !height || width * height > MAX_PIXELS || !sawScan) return { ok: false, reason: "JPEG_INCOMPLETE" };
-  if (!body.subarray(Math.max(0, body.length - 4)).includes(Buffer.from([0xff, 0xd9]))) return { ok: false, reason: "JPEG_NO_EOI" };
-  return { ok: true, width, height };
+  return null;
 }
 
-function checkWebp(body: Buffer): ImageCheck {
-  if (body.length < 30 || body.toString("ascii", 0, 4) !== "RIFF" || body.toString("ascii", 8, 12) !== "WEBP") return { ok: false, reason: "WEBP_SIGNATURE" };
-  if (body.readUInt32LE(4) + 8 > body.length) return { ok: false, reason: "WEBP_TRUNCATED" };
-  const chunk = body.toString("ascii", 12, 16);
-  let width = 0, height = 0;
-  if (chunk === "VP8 ") { if (body[23] !== 0x9d || body[24] !== 0x01 || body[25] !== 0x2a) return { ok: false, reason: "WEBP_VP8" }; width = body.readUInt16LE(26) & 0x3fff; height = body.readUInt16LE(28) & 0x3fff; }
-  else if (chunk === "VP8L") { if (body[20] !== 0x2f) return { ok: false, reason: "WEBP_VP8L" }; const bits = body.readUInt32LE(21); width = (bits & 0x3fff) + 1; height = ((bits >>> 14) & 0x3fff) + 1; }
-  else if (chunk === "VP8X") { width = (body.readUIntLE(24, 3)) + 1; height = (body.readUIntLE(27, 3)) + 1; }
-  else return { ok: false, reason: "WEBP_CHUNK" };
-  if (!width || !height || width * height > MAX_PIXELS) return { ok: false, reason: "WEBP_DIMENSIONS" };
-  return { ok: true, width, height };
-}
-
-export function checkImage(body: Buffer, mimeType: string): ImageCheck {
-  const mime = mimeType.toLowerCase();
-  if (mime === "image/png") return checkPng(body);
-  if (mime === "image/jpeg") return checkJpeg(body);
-  if (mime === "image/webp") return checkWebp(body);
-  return { ok: false, reason: "UNSUPPORTED_IMAGE_TYPE" };
+export async function checkImage(body: Buffer, mimeType: string): Promise<ImageCheck> {
+  const format = FORMAT_FOR_MIME[mimeType.toLowerCase()];
+  if (!format) return { ok: false, reason: "UNSUPPORTED_IMAGE_TYPE" };
+  if (format === "png") { const guarded = pngBombGuard(body); if (guarded) return guarded; }
+  try {
+    const decoder = sharp(body, { limitInputPixels: MAX_IMAGE_PIXELS, failOn: "warning", pages: 1, sequentialRead: true });
+    const meta = await decoder.metadata();
+    if (meta.format !== format) return { ok: false, reason: "FORMAT_MISMATCH" };
+    if (!meta.width || !meta.height || meta.width * meta.height > MAX_IMAGE_PIXELS) return { ok: false, reason: "IMAGE_DIMENSIONS" };
+    // a full decode: every pixel is produced, so truncated / damaged data surfaces here
+    const { data, info } = await decoder.raw().toBuffer({ resolveWithObject: true });
+    if (info.width !== meta.width || info.height !== meta.height || data.length !== info.width * info.height * info.channels || data.length > MAX_DECODED_BYTES) return { ok: false, reason: "DECODED_SIZE" };
+    return { ok: true, width: info.width, height: info.height };
+  } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    return { ok: false, reason: /pixel limit|exceeds/i.test(message) ? "IMAGE_TOO_LARGE" : "IMAGE_NOT_DECODABLE" };
+  }
 }
