@@ -26,23 +26,28 @@ export interface ProfileMetricsOutput {
 }
 
 export const BioSuggestInputSchema = z.object({
-  providerId: z.string().min(1),
-  currentBio: z.string().optional(),
+  providerId: z.string().optional().default("provider"),
+  currentBio: z.string().max(2000).optional(),
+  bio: z.string().max(2000).optional(),
   jobTitle: z.string().max(200).optional(),
+  specialtyName: z.string().max(200).optional(),
+  subSpecialties: z.array(z.string()).max(30).optional(),
   experienceRange: z.string().max(200).optional(),
   existingSkills: z.array(z.string()).max(50).optional(),
-  specialties: z.array(z.string()).default([]),
+  specialties: z.array(z.string()).max(30).default([]),
   yearsOfExperience: z.number().nonnegative().default(0),
-  keyAchievements: z.array(z.string()).default([]),
+  keyAchievements: z.array(z.string()).max(30).default([]),
   maxLength: z.number().int().min(80).max(2000).default(500),
 });
 
 export type BioSuggestInput = z.infer<typeof BioSuggestInputSchema>;
 
 export const BioEnhanceInputSchema = z.object({
-  providerId: z.string().min(1),
-  bio: z.string().trim().min(10).max(2000),
+  providerId: z.string().optional().default("provider"),
+  bio: z.string().max(2000).optional(),
+  currentBio: z.string().max(2000).optional(),
   jobTitle: z.string().max(200).optional(),
+  specialtyName: z.string().max(200).optional(),
   specialties: z.array(z.string()).max(30).default([]),
   subSpecialties: z.array(z.string()).max(30).default([]),
   existingSkills: z.array(z.string()).max(50).optional(),
@@ -61,6 +66,7 @@ export const SkillsSuggestInputSchema = z.object({
 });
 
 export type SkillsSuggestInput = z.infer<typeof SkillsSuggestInputSchema>;
+
 
 export interface PortfolioSampleItem {
   title: string;
@@ -101,10 +107,30 @@ export interface AccreditationReviewOutput {
     id: string;
     status: string;
   };
+  status?: string;
+  aiScore?: number | null;
+  aiQualityRating?: "Excellent" | "Good" | "Acceptable" | null;
+  feedback?: {
+    summary: string;
+    strengths: string[];
+    recommendations: string[];
+  };
   inspected: boolean;
   basis: string;
   evidence?: ContentEvidence[];
   unavailable?: string[];
+  /** how many readable sources / images the review really saw, and what it could not read */
+  /** sources handed to the review vs sources it really read (a decodable image the model confirmed, readable text) */
+  evidenceSent?: number;
+  evidenceReviewed?: number;
+  evidenceMissing?: string[];
+  /** always true: the final accreditation decision is human */
+  humanReviewRequired?: boolean;
+  rubric?: {
+    version: string;
+    basis: "PROVISIONAL_WEIGHTS";
+    criteria: Array<{ id: string; labelAr: string; weight: number; score: number; observation: string }>;
+  };
   evaluation: {
     aiScore: number | null;
     status: "AI_VERIFIED" | "NEEDS_REVISION" | "REJECTED" | "UNVERIFIED";

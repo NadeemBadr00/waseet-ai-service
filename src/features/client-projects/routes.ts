@@ -1,19 +1,23 @@
 import type { FastifyPluginAsync } from "fastify";
-import { MilestoneSuggestionInputSchema } from "./milestones.types.js";
+import { MilestoneSuggestionInputSchema, ProjectAnalysisInputSchema } from "./milestones.types.js";
 import { ProjectHealthInputSchema, DeliveryReviewInputSchema } from "./health-review.types.js";
 import { ProjectDraftService } from "./project-draft.service.js";
 import { MilestonesService } from "./milestones.service.js";
 import { HealthReviewService } from "./health-review.service.js";
 import { TextEnhanceService } from "./text-enhance.service.js";
 import { z } from "zod";
-import { ProjectDescriptionStreamInputSchema, RequestDraftInputSchema, RequestBudgetSuggestInputSchema } from "./project-draft.types.js";
-import { ProjectAnalysisInputSchema } from "./milestones.types.js";
+import {
+  ProjectDescriptionStreamInputSchema,
+  RequestDraftInputSchema,
+  BudgetMilestonesInputSchema,
+} from "./project-draft.types.js";
 import { ProjectVectorStore } from "../../core/knowledge/project-vector-store.js";
 import { ClientMemoryStore } from "../../core/knowledge/client-memory-store.js";
 import { embedTexts } from "../../runtime/voice.js";
 import { assertPrivileged, getTenantContext } from "../../core/auth/tenant-context.js";
 
 export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
+  // AI-01: Project description generator SSE stream (supports both modern and client-prefixed paths)
   const handleStreamDescription = async (request: any, reply: any) => {
     const body = (request.body as Record<string, unknown>) ?? {};
     const input = { ...ProjectDescriptionStreamInputSchema.parse({ ...body, category: body["category"] ?? body["inputPrompt"] }), preferredModel: typeof body["preferredModel"] === "string" ? body["preferredModel"] : undefined };
@@ -41,6 +45,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/v1/ai/project-description/stream", handleStreamDescription);
   fastify.post("/v1/ai/client/projects/description/stream", handleStreamDescription);
 
+  // AI-02: Request draft suggestions
   const handleDraft = async (request: any) => {
     const body = (request.body as Record<string, unknown>) ?? {};
     const input = RequestDraftInputSchema.parse({ ...body, description: body["description"] ?? body["inputPrompt"] });
@@ -50,15 +55,17 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/v1/ai/request-draft", handleDraft);
   fastify.post("/v1/ai/client/requests/draft-suggest", handleDraft);
 
+  // AI-02c: Step 4 dedicated budget & milestones suggestion
   const handleBudgetMilestones = async (request: any) => {
-    const body = (request.body as Record<string, unknown>) ?? {};
-    const input = RequestBudgetSuggestInputSchema.parse(body);
+    const input = BudgetMilestonesInputSchema.parse(request.body);
     const data = await ProjectDraftService.suggestBudgetAndMilestones(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
   };
-  fastify.post("/v1/ai/budget-milestones", handleBudgetMilestones);
+  fastify.post("/v1/ai/budget-milestones", handleBudgetMilestones); // alias kept: callers of the earlier path keep working
   fastify.post("/v1/ai/client/requests/budget-milestones", handleBudgetMilestones);
+  fastify.post("/v1/ai/request-budget-milestones", handleBudgetMilestones);
 
+  // AI-02b / 2.11c: Title vs. Specialty Check
   const handleTitleCheck = async (request: any) => {
     const body = z.object({
       title: z.string().min(1),
@@ -71,12 +78,14 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/v1/ai/request-title-check", handleTitleCheck);
   fastify.post("/v1/ai/client/requests/title-check", handleTitleCheck);
 
+  // AI-03: Milestone suggestions
   fastify.post("/v1/ai/milestones", async (request) => {
     const input = MilestoneSuggestionInputSchema.parse(request.body);
     const data = await MilestonesService.suggestMilestones(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
   });
 
+  // AI-04: Project plan analysis
   const handleAnalysis = async (request: any) => {
     const body = (request.body as Record<string, unknown>) ?? {};
     const input = ProjectAnalysisInputSchema.parse(body);
@@ -86,6 +95,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post("/v1/ai/project-analysis", handleAnalysis);
   fastify.post("/v1/ai/client/projects/analysis", handleAnalysis);
 
+  // AI-05 / AI2-09: Live text suggestion stream
   fastify.post("/v1/ai/text/suggest/stream", async (request, reply) => {
     const body = z.object({ title: z.string().min(1) }).parse(request.body);
     reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -107,8 +117,9 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // AI-05 / AI2-10: Live description enhancement stream
   fastify.post("/v1/ai/text/enhance/stream", async (request, reply) => {
-    const body = z.object({ description: z.string().min(1), title: z.string().optional() }).parse(request.body);
+    const body = z.object({ description: z.string().min(1) }).parse(request.body);
     reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
     reply.raw.setHeader("Connection", "keep-alive");
@@ -116,7 +127,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
 
     try {
       reply.raw.write(`event: generation.started\ndata: ${JSON.stringify({ status: "started" })}\n\n`);
-      for await (const item of TextEnhanceService.enhanceDescriptionStream(body.description, getTenantContext()?.signal, body.title)) {
+      for await (const item of TextEnhanceService.enhanceDescriptionStream(body.description, getTenantContext()?.signal)) {
         reply.raw.write(`event: text.delta\ndata: ${JSON.stringify({ chunk: item.chunk })}\n\n`);
       }
       reply.raw.write(`event: generation.completed\ndata: ${JSON.stringify({ status: "completed" })}\n\n`);
@@ -128,18 +139,21 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     }
   });
 
+  // AI-18: Project health analysis
   fastify.post("/v1/ai/project-health", async (request) => {
     const input = ProjectHealthInputSchema.parse(request.body);
     const data = await HealthReviewService.analyzeProjectHealth(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
   });
 
-  fastify.post("/v1/ai/delivery-review", { bodyLimit: 10 * 1024 * 1024 }, async (request) => {
+  // AI-19 / AI2-03: Delivery AI Review (client & provider views)
+  fastify.post("/v1/ai/delivery-review", async (request) => {
     const input = DeliveryReviewInputSchema.parse(request.body);
     const data = await HealthReviewService.reviewDelivery(input);
     return { success: true, requestId: `req-${Date.now()}`, data };
   });
 
+  // AI-Vector-01: Synchronize completed projects with vector memory (Admin/System privileged)
   fastify.post("/v1/ai/knowledge/projects/sync", async (request) => {
     assertPrivileged();
     const body = z.object({
@@ -151,7 +165,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
         scopeSummary: z.string().min(15),
         durationDays: z.number().int().min(1),
         budgetAmount: z.number().min(0),
-        currency: z.string().default("SAR"),
+        currency: z.string().default("USD"),
         milestonesCount: z.number().int().min(1).default(1),
         milestonesSummary: z.string().optional(),
         rating: z.number().min(0).max(5),
@@ -218,6 +232,7 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     };
   });
 
+  // AI-Vector-02: Test / debug vector search endpoint
   fastify.post("/v1/ai/knowledge/projects/search", async (request) => {
     const body = z.object({
       query: z.string().min(1),
@@ -234,10 +249,12 @@ export const clientProjectRoutes: FastifyPluginAsync = async (fastify) => {
     return { success: true, count: matches.length, matches };
   });
 
+  // AI-Vector-03: Vector store stats
   fastify.get("/v1/ai/knowledge/projects/stats", async () => {
     return { success: true, stats: ProjectVectorStore.getStats() };
   });
 
+  // AI-Vector-04: Client preference memory upsert & retrieval
   fastify.post("/v1/ai/knowledge/client-memory", async (request) => {
     assertPrivileged();
     const body = z.object({

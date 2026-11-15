@@ -63,7 +63,10 @@ export const ProjectFitInputSchema = z.object({
     description: z.string().optional(),
     requirements: z.array(z.string()).optional(),
     budget: z.number().optional(),
+    budgetMin: z.number().optional(),
+    budgetMax: z.number().optional(),
     durationDays: z.number().optional(),
+    deliveryDays: z.number().optional(),
   }).optional(),
 });
 
@@ -79,20 +82,50 @@ export interface ProjectFitOutput {
 }
 
 export const MarketplaceRecommendationInputSchema = z.object({
-  query: z.string().min(1),
+  query: z.string().optional().default(""),
   limit: z.number().int().positive().max(50).default(5),
   category: z.string().optional(),
-  candidates: z.array(z.object({ id: z.string().min(1), title: z.string().min(1), description: z.string().optional(), category: z.string().optional(), isPublished: z.boolean().optional() })).max(200).optional(),
+  subSpecialty: z.string().optional(),
+  candidates: z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    description: z.string().optional(),
+    /** the website's stable category id/slug: the ONLY value compared with `category` (never an Arabic display name) */
+    category: z.string().optional(),
+    /** display name of the category, used for text matching only */
+    categoryLabel: z.string().optional(),
+    subSpecialty: z.string().optional(),
+    price: z.number().optional(),
+    deliveryDays: z.number().optional(),
+    aiScore: z.number().nullable().optional(),
+    isPublished: z.boolean().optional(),
+  })).max(200).optional(),
 });
 
 export type MarketplaceRecommendationInput = z.infer<typeof MarketplaceRecommendationInputSchema>;
+
+/** How `matchScore` was obtained. `QUERY_TERM_OVERLAP` = share of the query's words found in the service text (a keyword overlap, not a quality rating); null score = nothing was measured. */
+export type MarketplaceScoreBasis = "QUERY_TERM_OVERLAP" | "NONE";
 
 export interface MarketplaceItem {
   id: string;
   title: string;
   generationSource: string;
+  matchScore: number | null;
+  scoreBasis: MarketplaceScoreBasis;
+  reason?: string;
 }
 
 export interface MarketplaceRecommendationOutput {
   items: MarketplaceItem[];
+  recommendations?: Array<{
+    id: string;
+    title: string;
+    matchScore: number | null;
+    scoreBasis: MarketplaceScoreBasis;
+    reason: string;
+    generationSource: string;
+  }>;
+  bannerInsight?: string;
+  smartSearchTags?: string[];
 }

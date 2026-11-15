@@ -56,7 +56,7 @@ export const legacyClientAdapterRoutes: FastifyPluginAsync = async (fastify) => 
 
   // Legacy AI.pdf §15: POST /api/marketplace/ai-recommendations
   fastify.post("/api/marketplace/ai-recommendations", async (request) => {
-    const body = z.object({ query: z.string().min(1), limit: z.number().int().positive().default(6) }).parse(request.body);
+    const body = z.object({ query: z.string().optional().default(""), limit: z.number().int().positive().default(6) }).parse(request.body ?? {});
     const data = await MarketplaceService.getRecommendations(body);
     return { success: true, data };
   });

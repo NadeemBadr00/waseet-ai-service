@@ -6,7 +6,40 @@ import type { DataClassification } from "../../router/types.js";
 import { TtsSynthesizeInputSchema, TtsVoiceEnum, type TtsSynthesizeInput, type TtsSynthesizeOutput } from "./tts.types.js";
 
 export interface TtsSynthesisOptions extends OperationOptions { classification?: DataClassification; }
-const dialectStyles: Record<string, string> = { egyptian: "Egyptian Arabic, warm and natural", gulf: "Gulf Arabic, calm and welcoming", saudi: "Saudi Arabic, clear and welcoming", msa: "Modern Standard Arabic, clear and polished", english: "Natural clear English", custom: "Natural conversational tone" };
+const RAW_VOICE_PROSODY_RULE = [
+  "Speak with a natural, warm, balanced human voice as a real advisor talking face-to-face.",
+  "Lock strictly to the session dialect from the first word to the last without mixing accents.",
+  "Infer internal word vowelization automatically from sentence context to prevent phonetic ambiguity, and always apply natural Arabic pausal sukun at commas and sentence endings instead of robotic grammatical endings.",
+  "Use a moderate pace with short breath pauses at commas, gently lower pitch at statement endings, and raise pitch softly on questions.",
+  "Verbalize all numbers, currencies, percentages, and abbreviations as full spoken words according to context, and never read formatting symbols or punctuation marks aloud.",
+].join(" ");
+const dialectStyles: Record<string, string> = {
+  saudi: `Professional White Saudi Arabic, clear and welcoming. ${RAW_VOICE_PROSODY_RULE}`,
+  gulf: `Calm and welcoming Khaleeji Gulf Arabic. ${RAW_VOICE_PROSODY_RULE}`,
+  msa: `Modern Standard Arabic (White Fusha), clear and smooth without stiff news-anchor exaggeration. ${RAW_VOICE_PROSODY_RULE}`,
+  egyptian: `Natural professional Egyptian Arabic, warm and clear. ${RAW_VOICE_PROSODY_RULE}`,
+  english: "Natural, clear, warm conversational English with smooth pacing, short breath pauses at punctuation, and full spoken verbalization of numbers, currencies, percentages and abbreviations.",
+  custom: `Natural conversational tone. ${RAW_VOICE_PROSODY_RULE}`,
+};
+
+/** Speech-only cleanup (the displayed text is untouched): markdown, links and symbols become natural pauses. */
+export function normalizeSpeechStructure(raw: string): string {
+  return String(raw ?? "")
+    .replace(/```[\s\S]*?(?:```|$)/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/^[\s]*#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "")
+    .replace(/\s*[—–]+\s*|\.{2,}/g, "، ")
+    .replace(/\(([^()]{1,120})\)/g, "، $1، ")
+    .replace(/([\u0600-\u06FF])\s*\/\s*([\u0600-\u06FF])/g, "$1 أو $2")
+    .replace(/[*_`>#|~]/g, " ")
+    .replace(/(?:،\s*){2,}/g, "، ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 const ENGLISH_ONLY_VOICES: Readonly<Record<string, "Puck" | "Kore">> = {
   Callirrhoe: "Kore",
   Leda: "Kore",
@@ -25,7 +58,7 @@ function audioContent(data: Record<string, unknown>): Array<Record<string, unkno
 export class TtsService {
   public static resolveStyle(input: TtsSynthesizeInput): string { return `${dialectStyles[input.dialect]}${input.speakingRate === "slow" ? ", speak slowly" : input.speakingRate === "rapid" ? ", speak briskly" : ""}${input.style ? `, ${input.style}` : ""}`; }
   public static getCandidateModels(preferredModel: string): string[] { if (preferredModel === "AUTO") return [...TTS_MODELS]; if (!(TTS_MODELS as readonly string[]).includes(preferredModel)) throw new AiProviderError("AI_TTS_MODEL_UNAPPROVED", 400); return [preferredModel, ...TTS_MODELS.filter(m => m !== preferredModel)]; }
-  private static payload(model: string, input: TtsSynthesizeInput, stream = false): Record<string, unknown> { return { model, store: false, stream, input: [{ type: "user_input", content: [{ type: "text", text: input.text, annotations: [{ type: "speech_metadata", style: this.resolveStyle(input) }] }] }], response_format: { type: "audio", mime_type: stream ? "audio/l16" : input.mimeType }, generation_config: { speech_config: [{ voice: input.voice }] } }; }
+  private static payload(model: string, input: TtsSynthesizeInput, stream = false): Record<string, unknown> { return { model, store: false, stream, input: [{ type: "user_input", content: [{ type: "text", text: normalizeSpeechStructure(input.text) || input.text, annotations: [{ type: "speech_metadata", style: this.resolveStyle(input) }] }] }], response_format: { type: "audio", mime_type: stream ? "audio/l16" : input.mimeType }, generation_config: { speech_config: [{ voice: input.voice }] } }; }
   private static async synthesizeOnce(input: TtsSynthesizeInput, options: TtsSynthesisOptions = {}): Promise<TtsSynthesizeOutput> {
     const style = this.resolveStyle(input);
     const out = await modelOperation(this.getCandidateModels(input.model), options.classification ?? "PERSONAL", async (project, model, signal, lease) => {

@@ -48,18 +48,44 @@ export const ProposalAuditInputSchema = z.object({
   providerId: z.string().min(1),
   projectId: z.string().min(1),
   proposalMessage: z.string().optional(),
+  proposalDraft: z.object({
+    title: z.string().optional(),
+    message: z.string().optional(),
+    price: z.number().optional(),
+    durationDays: z.number().optional(),
+    milestonesCount: z.number().optional(),
+    selectedPortfolioIds: z.array(z.string()).optional(),
+  }).optional(),
+  projectContext: z.object({
+    title: z.string().optional(),
+    budget: z.string().optional(),
+    duration: z.string().optional(),
+    milestones: z.string().optional(),
+  }).optional(),
 });
 
 export type ProposalAuditInput = z.infer<typeof ProposalAuditInputSchema>;
 
+export interface ProposalAuditProfileItem {
+  title: string;
+  subtitle: string;
+  status: "EXCELLENT" | "GOOD" | "WARNING";
+  badge: string;
+}
+
 export interface ProposalAuditOutput {
-  profileAudit: string[];
+  profileAudit: ProposalAuditProfileItem[];
   triPartyComparison: {
     clientRequirementsFit: string;
     providerCapabilityFit: string;
     marketPriceAlignment: string;
+    client: { budget: string; duration: string; milestones: string };
+    provider: { budget: string; duration: string; milestones: string };
+    aiRecommendation: { budget: string; duration: string; milestones: string };
   };
+  triPartyNote: string;
   finalMetrics: {
+    overallScore: number | null;
     compatibilityScore: number | null;
   };
   acceptanceOdds: number | null;

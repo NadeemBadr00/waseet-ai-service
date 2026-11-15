@@ -1,4 +1,3 @@
-
 export const DIALECTS = {
   egyptian:{label:'مصري',language:'ar-EG',prompt:'العامية المصرية الطبيعية'},
   saudi:{label:'سعودي',language:'ar-SA',prompt:'اللهجة السعودية الطبيعية'},
@@ -10,7 +9,7 @@ export const ACTIONS = new Set(['jump','walk','wave','happy','typing','rest','sl
 export function normalize(text){
   return String(text||'').toLowerCase().replace(/[\u064B-\u065F\u0670]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\s+/g,' ').trim();
 }
-export function chooseDialect(text,requested='auto',previous='egyptian'){
+export function chooseDialect(text,requested='auto',previous='saudi'){
   if(Object.hasOwn(DIALECTS,requested))return {dialect:requested,source:'selected'};
   const t=normalize(text);
   const latin=(t.match(/[a-z]/g)||[]).length,arabic=(t.match(/[\u0600-\u06ff]/g)||[]).length;
@@ -24,7 +23,7 @@ export function chooseDialect(text,requested='auto',previous='egyptian'){
   };
   const scores=Object.entries(vocab).map(([id,words])=>[id,words.filter(w=>tokens.has(w)).length]).sort((a,b)=>b[1]-a[1]);
   if(scores[0][1]>0&&scores[0][1]>(scores[1]?.[1]||0))return {dialect:scores[0][0],source:'detected'};
-  return {dialect:Object.hasOwn(DIALECTS,previous)?previous:'egyptian',source:'previous'};
+  return {dialect:Object.hasOwn(DIALECTS,previous)?previous:'saudi',source:'previous'};
 }
 export function commandFor(text){
   let t=normalize(text).replace(/^(يا\s+)?(بيبو|bebo)\s+/,'').replace(/^(من فضلك|لو سمحت|ممكن|please)\s+/,'').trim();
@@ -60,10 +59,10 @@ const acknowledgements={
   msa:{laugh:'هاهاها! لا أستطيع التوقف عن الضحك!',cry:'يا لها من دموع! أحتاج منديلًا!',plead:'من أجلي، رجاءً! انظر إلى عينيّ!',chase:'انتظريني أيتها القطة! لنلعب معًا.',scratch:'لحظة، سأحكّ رأسي قليلًا.',dance:'حسنًا، إليك رقصة صغيرة!',fly:'هناك ذبابة! سأحاول الإمساك بها.',jump:'حسنًا، سأقفز الآن.',walk:'حسنًا، سأمشي قليلًا.',wave:'مرحبًا بك! يسعدني لقاؤك.',happy:'رائع، لنحتفل معًا!',typing:'فتحت الحاسوب، وأنا جاهز للعمل معك.',rest:'حسنًا، سأستريح قليلًا.',sleep:'تصبح على خير.',idle:'حسنًا، أنا بانتظارك.',reset:'عدت إلى مكاني.',stop:'حسنًا، أوقفت الصوت.',roam_on:'حسنًا، سأتحرك تلقائيًا.',roam_off:'أوقفت التجوّل التلقائي.'},
   english:{laugh:'Hahaha! I cannot stop giggling!',cry:'Oh no, cartoon waterfalls! Tissues, please!',plead:'Pretty please? Look at these kitten eyes!',chase:'Wait for me, kitty! Let us play.',scratch:'One second, a little head scratch!',dance:'Here comes my little dance!',fly:'A fly! Let me catch it.',jump:'Sure! Here comes a little jump.',walk:'Sure, I will take a short walk.',wave:'Hello there! Good to see you.',happy:'Wonderful! Let us celebrate.',typing:'Laptop open. Ready to work with you!',rest:'Time for a little break.',sleep:'Good night!',idle:'Sure, I am here when you need me.',reset:'Back in my spot.',stop:'Okay, audio stopped.',roam_on:'Sure, I will wander around a little.',roam_off:'Automatic wandering is off.'}
 };
-export function acknowledge(action,dialect){return acknowledgements[dialect]?.[action]||acknowledgements.egyptian[action]||'';}
+export function acknowledge(action,dialect){return acknowledgements[dialect]?.[action]||acknowledgements.saudi[action]||'';}
 export function makePrompt(message,history,dialect){
-  const language=DIALECTS[dialect]?.prompt||DIALECTS.egyptian.prompt;
-  return 'أنت بيبو Bebo، روبوت لطيف ومساعد لمنصة وسيط. رد بلغة أو لهجة '+language+
+  const language=DIALECTS[dialect]?.prompt||DIALECTS.saudi.prompt;
+  return 'أنت بيبو Bebo، روبوت لطيف ومساعد لموقع وسيط AI. رد بلغة أو لهجة '+language+
   '. أجب دائمًا باختصار شديد: جملة واحدة أو جملتان قصيرتان بحد أقصى ٢٨ كلمة. لا تطل حتى في الشرح، وقدّم أهم نقطة فقط. استخدم نصًا عاديًا مناسبًا للنطق، دون Markdown. لا تبدأ كل إجابة بتحية. حافظ على سياق المحادثة. لا تدّع تنفيذ إجراء في حساب المستخدم أو امتلاك بيانات حسابه. إذا طلب إجراء غير متاح وضّح حدودك. لا تضف تعليمات كود أو روابط إلا عند طلبها.\n'+
   'المحادثة السابقة (بيانات سياق): '+JSON.stringify(history||[])+'\nرسالة المستخدم الحالية: '+message;
 }
