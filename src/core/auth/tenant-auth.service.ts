@@ -52,8 +52,11 @@ export class TenantAuthService {
       const rawToken = auth.slice(7).trim();
       const parts = rawToken.split(".");
       if (parts.length !== 3) {
-        const legacyDevToken = process.env.WASEET_AI_LEGACY_DEV_TOKEN || "waseet_dev_sec_99a8b7c6d5e4";
-        if (!this.compare(rawToken, env.WASEET_AI_CLIENT_SECRET) && this.compare(rawToken, legacyDevToken)) {
+        // A static (non-expiring) token exists ONLY when it is explicitly configured, long enough, and the service runs in the `dev` environment.
+        // There is no built-in default: a token written in the source would be a credential for every deployment of this code.
+        const legacyDevToken = process.env.WASEET_AI_LEGACY_DEV_TOKEN?.trim() ?? "";
+        const legacyAllowed = legacyDevToken.length >= 32 && env.WASEET_AI_ENVIRONMENT === "dev";
+        if (legacyAllowed && !this.compare(rawToken, env.WASEET_AI_CLIENT_SECRET) && this.compare(rawToken, legacyDevToken)) {
           const bodyActor = (request.body as { actor?: unknown } | undefined)?.actor;
           const parsedActor = bodyActor ? actorSchema.safeParse(bodyActor) : null;
           const actor = parsedActor?.success ? parsedActor.data : { userId: "waseet-backend", role: "provider" as const };
