@@ -120,6 +120,8 @@ export interface AccreditationReviewOutput {
   evidence?: ContentEvidence[];
   unavailable?: string[];
   /** how many readable sources / images the review really saw, and what it could not read */
+  /** sources handed to the review vs sources it really read (a decodable image the model confirmed, readable text) */
+  evidenceSent?: number;
   evidenceReviewed?: number;
   evidenceMissing?: string[];
   /** always true: the final accreditation decision is human */

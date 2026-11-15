@@ -158,6 +158,16 @@ export async function runSmoke({ baseUrl, clientId, clientSecret, environment = 
     const n = data(noEvidence);
     const noScoreWithoutEvidence = n.aiScore == null || n.inspected === true; // a description alone is never turned into a quality score
     if (expect === "new") {
+      const validPng = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAA0ElEQVR4nGNgYOcTlVHWMrSwd/MNiU7KLCiva+2ZPGshA6+ItJKmgbmdq09wVGJGflltS/ekmQuWr2OQUtTQN7N18Q6KTEjPK61p7po4Y/6ytVt2M6jrmdo4ewVGxKflllQ3dU6YPm/pms27Dp5gMLF28gwIj0vNKa5q7OifNnfJ6k07Dxw/d5XB0cM/LDYlu6iyob1v6pzFqzbu2H/s7JXbjxj8QmOSswor6tt6p8xetHLD9n1Hz1y+9fDFewYkF65Yv23vkdOXbj54/u7rHwDxSl6BYkTbfwAAAABJRU5ErkJggg==";
+      const image = await post("/v1/ai/accreditation-review", { sampleId: "smoke-3", title: "تطبيق", description: "وصف تطبيق كامل وواضح", technologiesUsed: [], specialtyName: "تطوير تطبيقات", attachments: [`data:image/png;base64,${validPng}`] }, { timeoutMs: 90000 });
+      const di = data(image);
+      add("accreditation.with-image", "/v1/ai/accreditation-review", image.status, "MODEL", image.status === 200 && ((di.inspected === true && typeof di.aiScore === "number") || (di.inspected === false && di.aiScore === null)) && Number(di.evidenceSent) === 1, `inspected=${di.inspected} score=${di.aiScore} sent=${di.evidenceSent} reviewed=${di.evidenceReviewed} (a score only when the model confirmed it read the image; an unreadable 8x8 test image may legitimately give no score)`);
+      const corrupt = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(Array.from({ length: 120 }, (_, i) => (i * 37 + 11) & 255))]).toString("base64");
+      const bad = await post("/v1/ai/accreditation-review", { sampleId: "smoke-4", title: "تطبيق", description: "وصف تطبيق كامل وواضح", technologiesUsed: [], specialtyName: "تطوير تطبيقات", attachments: [`data:image/png;base64,${corrupt}`] }, { timeoutMs: 90000 });
+      const db = data(bad);
+      add("accreditation.corrupt-image", "/v1/ai/accreditation-review", bad.status, "MODEL", bad.status === 200 && db.aiScore === null && db.inspected === false && JSON.stringify(db.evidenceMissing ?? db.unavailable ?? []).includes("IMAGE_NOT_DECODABLE"), `score=${db.aiScore} inspected=${db.inspected} missing=${JSON.stringify(db.evidenceMissing ?? [])}`);
+    }
+    if (expect === "new") {
       add("accreditation.with-evidence", "/v1/ai/accreditation-review", withEvidence.status, "MODEL", withEvidence.status === 200 && d.inspected === true && typeof d.aiScore === "number" && Array.isArray(d.rubric?.criteria) && d.humanReviewRequired === true, `inspected=${d.inspected} score=${d.aiScore} rubric=${d.rubric?.version} humanReviewRequired=${d.humanReviewRequired}`);
       add("accreditation.no-evidence", "/v1/ai/accreditation-review", noEvidence.status, "MODEL", noEvidence.status === 200 && n.aiScore === null && n.aiQualityRating === null && n.humanReviewRequired === true, `score=${n.aiScore} rating=${n.aiQualityRating} basis=${n.basis}`);
     } else {

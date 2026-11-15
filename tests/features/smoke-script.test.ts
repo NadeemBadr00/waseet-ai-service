@@ -22,6 +22,7 @@ describe("scripts/smoke-ai-contract.mjs", () => {
         const excerpt: string = input.evidence?.[0]?.excerpt ?? "";
         return JSON.stringify({
           criteria: ["specialtyRelevance", "technicalSubstance", "deliverableCompleteness", "claimConsistency", "presentationClarity"].map((id) => ({ id, score: 80, observation: "ملاحظة مبنية على الملف" })),
+          visualReadings: (input.visualAttachments ?? []).map((att: { index: number }) => ({ index: att.index, readable: true, observation: "واجهة تطبيق" })),
           feedbackAr: "عمل منظم", findings: excerpt ? [{ source: input.evidence[0].source, quote: excerpt.slice(0, 20), observation: "حساب المجموع" }] : [], recommendations: ["أضف توثيقًا"],
         });
       }

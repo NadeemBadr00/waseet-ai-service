@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import { createHash } from "node:crypto";
 import { featureError } from "./model-output.js";
 import { extractContent } from "./document-extractor.js";
+import { checkImage } from "./image-validation.js";
 import { getTenantContext } from "../auth/tenant-context.js";
 
 export interface ContentEvidence { source: string; mimeType: string; sha256: string; contentRead: boolean; excerpt: string; truncated: boolean; basis: string; lineCount: number; analysis?: unknown }
@@ -92,8 +93,9 @@ function decodeInlineContent(raw: string, index: number): { body: Buffer; mimeTy
   if (!body.byteLength || body.byteLength > MAX_INLINE_BYTES) throw featureError("CONTENT_TOO_LARGE", "Inline content exceeds limit.", 422);
   return { body, mimeType, source };
 }
-function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out: VisualAttachment[]): void {
-  if (out.length >= 2 || body.byteLength < 32 || body.byteLength > 2 * 1024 * 1024) return;
+/** An image is evidence only when its container decodes. A bad one is reported (never silently dropped, never sent on) so a caller cannot mistake "attached" for "read". */
+function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out: VisualAttachment[], unavailable: string[]): void {
+  if (out.length >= 2 || body.byteLength > 2 * 1024 * 1024) return;
   const normalizedMime = /^image\/(?:jpeg|png|webp)$/i.test(mimeType)
     ? mimeType.toLowerCase()
     : /\.jpe?g(?:\?|$)/i.test(source) ? "image/jpeg"
@@ -101,6 +103,8 @@ function maybeCollectVisual(body: Buffer, mimeType: string, source: string, out:
     : /\.webp(?:\?|$)/i.test(source) ? "image/webp"
     : null;
   if (!normalizedMime) return;
+  const check = checkImage(body, normalizedMime);
+  if (!check.ok) { unavailable.push(`IMAGE_NOT_DECODABLE:${source}:${check.reason}`); return; }
   out.push({ source, mimeType: normalizedMime, data: body.toString("base64"), byteLength: body.byteLength });
 }
 export class ContentInspector {
@@ -114,7 +118,7 @@ export class ContentInspector {
         const inlineSource = `uploaded-file://inline/${index + 1}`;
         try {
           const { body, mimeType, source } = decodeInlineContent(raw, index);
-          maybeCollectVisual(body, mimeType, source, visualAttachments);
+          maybeCollectVisual(body, mimeType, source, visualAttachments, unavailable);
           const extracted = await extractContent(body, mimeType, source, signal);
           evidence.push(...extracted);
           if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${source}`);
@@ -144,7 +148,7 @@ export class ContentInspector {
           if (tree.truncated || (tree.tree?.length ?? 0) > files.length) unavailable.push(`REPOSITORY_PARTIAL:${raw}`);
         } else {
           const fetched = await fetchBounded(url.href, signal);
-          maybeCollectVisual(fetched.body, fetched.mimeType, url.href, visualAttachments);
+          maybeCollectVisual(fetched.body, fetched.mimeType, url.href, visualAttachments, unavailable);
           const extracted = await extractContent(fetched.body, fetched.mimeType, url.href, signal);
           evidence.push(...extracted);
           if (!extracted.some(item => item.contentRead)) unavailable.push(`CONTENT_NOT_READABLE:${url.href.split("?")[0]}`);

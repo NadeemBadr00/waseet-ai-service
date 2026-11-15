@@ -132,15 +132,21 @@ export class AccreditationService {
     const { visualAttachments, ...inspection } = await ContentInspector.inspectWithMedia(
       [githubUrl, projectUrl, ...(options.attachments ?? [])].filter((url): url is string => !!url)
     );
-    const unavailable = [...inspection.unavailable, ...(options.unreadAttachments ?? []).map(name => `ATTACHMENT_NOT_PASSED:${name}`)];
+    // an image that decoded is "sent", not yet "read": the text-extraction note for it is not a failure and is dropped from the list
+    const visualSources = new Set(visualAttachments.map(att => att.source));
+    const unavailable = [
+      ...inspection.unavailable.filter(item => !(item.startsWith("CONTENT_NOT_READABLE:") && visualSources.has(item.slice("CONTENT_NOT_READABLE:".length)))),
+      ...(options.unreadAttachments ?? []).map(name => `ATTACHMENT_NOT_PASSED:${name}`),
+    ];
     const readableEvidence = inspection.evidence.filter(item => item.contentRead);
     const hasEvidence = readableEvidence.length > 0 || visualAttachments.length > 0;
     const specialtyName = options.specialtyName?.trim() || undefined;
     const humanFinal = "الاعتماد النهائي للمراجعة البشرية؛ هذا تقييم استشاري لا يثبت الملكية ولا يعتمد التخصص.";
 
-    if (!hasEvidence) {
-      // Nothing was read: say so. A written description alone is never turned into a quality score, a rating or an ownership claim.
-      const declared = description && description.trim().length >= 15
+    // Nothing was read (no readable text, no decodable image, or the model could not read the images): say so. A written description alone is never turned into a
+    // quality score, a rating or an ownership claim, and `inspected` stays false.
+    const unverified = async (reasons: string[], withDeclaredReview: boolean): Promise<AccreditationReviewOutput> => {
+      const declared = withDeclaredReview && description && description.trim().length >= 15
         ? await generateValidated(
             {
               featureId: "AI-07-ACCREDITATION-DECLARED-REVIEW",
@@ -157,7 +163,7 @@ export class AccreditationService {
         : null;
       const summary = `تعذّر قراءة الأدلة المرفقة أو الروابط؛ لم تُمنح درجة جودة ولم يُتحقق من الملكية. ${humanFinal}${declared ? ` ملاحظات على البيانات المكتوبة فقط: ${declared.feedbackAr}` : ""}`;
       const strengths = declared?.strengths ?? [];
-      const recommendations = [...(declared?.recommendations ?? []), "أرفق ملفات قابلة للقراءة (صورة أو PDF حتى 2 ميجابايت) أو رابطًا عامًا للعمل ليتمكن المراجع من الاطلاع عليها."];
+      const recommendations = [...(declared?.recommendations ?? []), "أرفق ملفات قابلة للقراءة (صورة سليمة أو PDF حتى 2 ميجابايت) أو رابطًا عامًا للعمل ليتمكن المراجع من الاطلاع عليها."];
       return {
         sample: { id: sampleId, status: "UNVERIFIED" },
         status: "MANUAL_REVIEW",
@@ -167,13 +173,15 @@ export class AccreditationService {
         inspected: false,
         basis: description ? "declared-fields-only" : inspection.basis,
         evidence: [],
-        unavailable,
+        unavailable: reasons,
+        evidenceSent: readableEvidence.length + visualAttachments.length,
         evidenceReviewed: 0,
-        evidenceMissing: unavailable,
+        evidenceMissing: reasons,
         humanReviewRequired: true,
         evaluation: { aiScore: null, status: "UNVERIFIED", aiQualityRating: null, feedbackAr: summary, strengths, recommendations },
       };
-    }
+    };
+    if (!hasEvidence) return unverified(unavailable, true);
 
     const contents = visualAttachments.length
       ? [{ role: "user" as const, parts: visualAttachments.map(att => ({ inlineData: { mimeType: att.mimeType, data: att.data } })) }]
@@ -185,19 +193,20 @@ export class AccreditationService {
         classification: "PERSONAL",
         ...(contents ? { contents } : {}),
         systemInstruction:
-          "راجع استشاريًا، باللغة العربية، نموذج عمل مقدم خدمة لتخصص محدد اعتمادًا على الأدلة المقروءة المرسلة فقط (مقتطفات نصية وصور مرفقة). هذه قراءة جزئية: لا اختبار تشغيل ولا إثبات ملكية ولا اعتماد للتخصص. لكل معيار من المعايير المرسلة في rubric أرجع score (0..100) وobservation مبنية على ما قُرئ فعلًا؛ إن لم يكفِ الدليل لمعيار فأعطه درجة منخفضة واذكر ذلك. أرجع criteria (معيار لكل id)، وfeedbackAr، وfindings[{source,quote,observation}] حيث quote اقتباس حرفي من مقتطف نصي مرسل، وrecommendations. التقنيات والوصف المعلنان ادعاءات تُقارن بالدليل ولا تُعتبر دليلًا.",
+          "راجع استشاريًا، باللغة العربية، نموذج عمل مقدم خدمة لتخصص محدد اعتمادًا على الأدلة المقروءة المرسلة فقط (مقتطفات نصية وصور مرفقة). هذه قراءة جزئية: لا اختبار تشغيل ولا إثبات ملكية ولا اعتماد للتخصص. لكل صورة في visualAttachments أرجع في visualReadings عنصرًا {index, readable, observation}: readable=true فقط إن كنت ترى محتواها فعلًا وتصفه في observation، وإلا readable=false ولا تبنِ عليها أي درجة. لكل معيار من المعايير المرسلة في rubric أرجع score (0..100) وobservation مبنية على ما قُرئ فعلًا؛ إن لم يكفِ الدليل لمعيار فأعطه درجة منخفضة واذكر ذلك. أرجع criteria (معيار لكل id)، وfeedbackAr، وfindings[{source,quote,observation}] حيث quote اقتباس حرفي من مقتطف نصي مرسل، وrecommendations. التقنيات والوصف المعلنان ادعاءات تُقارن بالدليل ولا تُعتبر دليلًا.",
         prompt: JSON.stringify({
           specialtyName,
           rubric: ACCREDITATION_RUBRIC.criteria.map(({ id, labelAr }) => ({ id, labelAr })),
           title,
           declared: { description, technologies },
           evidence: readableEvidence.map(item => ({ source: item.source, excerpt: item.excerpt, truncated: item.truncated })),
-          visualAttachmentsCount: visualAttachments.length,
+          visualAttachments: visualAttachments.map((att, index) => ({ index, source: att.source, mimeType: att.mimeType })),
           unreadableSources: unavailable,
         }),
       },
       z.object({
         criteria: z.array(z.object({ id: z.enum(RUBRIC_IDS), score: scoreSchema, observation: textSchema })).min(RUBRIC_IDS.length).max(RUBRIC_IDS.length),
+        visualReadings: z.array(z.object({ index: z.number().int().min(0), readable: z.boolean(), observation: textSchema })).max(8).default([]),
         feedbackAr: textSchema,
         findings: z.array(z.object({ source: z.string(), quote: z.string().min(1).max(1000), observation: textSchema })).max(8),
         recommendations: textListSchema,
@@ -209,13 +218,22 @@ export class AccreditationService {
         throw featureError("AI_UNGROUNDED_OUTPUT", "تحتوي المراجعة على دليل غير موجود في المحتوى المقروء.");
       }
     }
+    // "sent" is not "read": each image counts only if it decoded (checked above) AND the model confirmed it actually saw it. Every sent image must be answered exactly once.
+    const readingIndexes = data.visualReadings.map(reading => reading.index);
+    if (visualAttachments.length > 0 && (readingIndexes.length !== visualAttachments.length || new Set(readingIndexes).size !== visualAttachments.length || readingIndexes.some(index => index >= visualAttachments.length))) {
+      throw featureError("AI_UNGROUNDED_OUTPUT", "لم تُرجع المراجعة حالة قراءة لكل صورة مرسلة.");
+    }
+    const confirmedImages = new Set(data.visualReadings.filter(reading => reading.readable).map(reading => reading.index));
+    const reasons = [...unavailable, ...visualAttachments.filter((_, index) => !confirmedImages.has(index)).map(att => `IMAGE_NOT_CONFIRMED_READABLE:${att.source}`)];
+    const evidenceRead = readableEvidence.length + confirmedImages.size;
+    if (evidenceRead === 0) return unverified(reasons, false);
     const byId = new Map(data.criteria.map(criterion => [criterion.id, criterion]));
     if (byId.size !== RUBRIC_IDS.length) throw featureError("AI_UNGROUNDED_OUTPUT", "معايير التقييم غير مكتملة أو مكررة.");
     // The total is computed here from the weights; the model never supplies it.
     const aiScore = Math.round(ACCREDITATION_RUBRIC.criteria.reduce((sum, criterion) => sum + criterion.weight * (byId.get(criterion.id)!.score), 0) / 100);
     const aiQualityRating = ratingFor(aiScore);
     const strengths = data.findings.map(item => `${item.observation} — «${item.quote}»`);
-    const incomplete = unavailable.length ? ` تعذّرت قراءة بعض المصادر (${unavailable.length}) ولم تدخل في التقييم.` : "";
+    const incomplete = reasons.length ? ` تعذّرت قراءة بعض المصادر (${reasons.length}) ولم تدخل في التقييم.` : "";
     const summary = `${data.feedbackAr}${incomplete} ${humanFinal}`;
     return {
       sample: { id: sampleId, status: "UNVERIFIED" },
@@ -224,14 +242,18 @@ export class AccreditationService {
       aiQualityRating,
       feedback: { summary, strengths, recommendations: data.recommendations },
       ...inspection,
-      unavailable,
+      // `inspected` = evidence was actually READ (readable text, or an image that decoded and that the model confirmed seeing)
+      inspected: true,
+      basis: readableEvidence.length && confirmedImages.size ? "FETCHED_CONTENT_AND_VISUAL" : confirmedImages.size ? "VISUAL_ATTACHMENT_CONFIRMED" : inspection.basis,
+      unavailable: reasons,
       rubric: {
         version: ACCREDITATION_RUBRIC.version,
         basis: "PROVISIONAL_WEIGHTS",
         criteria: ACCREDITATION_RUBRIC.criteria.map(criterion => ({ id: criterion.id, labelAr: criterion.labelAr, weight: criterion.weight, score: byId.get(criterion.id)!.score, observation: byId.get(criterion.id)!.observation })),
       },
-      evidenceReviewed: readableEvidence.length + visualAttachments.length,
-      evidenceMissing: unavailable,
+      evidenceSent: readableEvidence.length + visualAttachments.length,
+      evidenceReviewed: evidenceRead,
+      evidenceMissing: reasons,
       humanReviewRequired: true,
       evaluation: { aiScore, status: "UNVERIFIED", aiQualityRating, feedbackAr: summary, strengths, recommendations: data.recommendations },
     };
