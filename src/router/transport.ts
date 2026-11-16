@@ -19,7 +19,7 @@ export async function providerFetch(project: ProjectManifest, path: string, body
   catch (error) { signal.throwIfAborted(); if (error instanceof TypeError) throw new AiProviderError("AI_PROVIDER_NETWORK", 503); throw error; }
   if (!response.ok) {
     let seconds = Number(response.headers.get("retry-after"));
-    if (!Number.isFinite(seconds) || seconds <= 0) { const date = Date.parse(response.headers.get("retry-after") || ""); seconds = Number.isFinite(date) ? Math.max(1, (date - Date.now()) / 1000) : 60; }
+    if (!Number.isFinite(seconds) || seconds <= 0) { const date = Date.parse(response.headers.get("retry-after") || ""); seconds = Number.isFinite(date) ? Math.max(1, (date - Date.now()) / 1000) : response.status === 503 ? 3 : 60; /* a 503 without Retry-After is a momentary overload, not a quota window */ }
     await response.body?.cancel(); throw new AiProviderError(`AI_PROVIDER_HTTP_${response.status}`, response.status, seconds * 1000);
   }
   return response;
