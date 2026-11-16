@@ -110,5 +110,8 @@ export interface IdentityInspectOutput {
     birthDate?: FieldCompareStatusA;
     nationalId?: FieldCompareStatusA;
   };
+  /** what the model sees (never taken from the user's choice); documentTypeMatches is present only when a kind was chosen AND a specific kind was recognised */
+  documentKind?: "NATIONAL_ID" | "PASSPORT" | "RESIDENCE_PERMIT" | "DRIVING_LICENCE" | "OTHER" | "UNKNOWN";
+  documentTypeMatches?: boolean;
   advisoryOnly: true;
 }
