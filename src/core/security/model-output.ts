@@ -2,6 +2,7 @@ import { z, type ZodType } from "zod";
 import { GeminiGateway } from "../../router/gemini-gateway.js";
 import type { InferenceRequest } from "../../router/types.js";
 import { getTenantContext } from "../auth/tenant-context.js";
+import { logFailure } from "../observability/failure-log.js";
 
 export function featureError(code: string, message: string, statusCode = 503): Error {
   return Object.assign(new Error(message), { code, statusCode });
@@ -10,7 +11,8 @@ export function parseModelOutput<T>(text: string, schema: ZodType<T>): T {
   try {
     const raw: unknown = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, ""));
     return schema.parse(raw);
-  } catch {
+  } catch (error) {
+    logFailure("model_output_invalid", { kind: error instanceof z.ZodError ? "schema" : "json", paths: error instanceof z.ZodError ? error.issues.slice(0, 6).map(i => `${i.path.join(".")}:${i.code}`).join(",") : undefined, length: text.length });
     throw featureError("AI_INVALID_RESPONSE", "تعذر التحقق من نتيجة التحليل. يرجى إعادة المحاولة.");
   }
 }

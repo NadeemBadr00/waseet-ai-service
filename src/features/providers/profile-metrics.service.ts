@@ -145,17 +145,19 @@ export class ProfileMetricsService {
         ...(availableSkills.length > 0 ? { availableSkills } : {}),
         existingSkills: input.existingSkills,
       }),
-    }, z.object({ suggestedSkills: z.array(z.string().trim().min(1).max(100)).min(1).max(12) }));
+    }, z.object({ suggestedSkills: z.array(z.string().trim().min(1)).min(1) })); // the model's size limits are applied below (the response schema sent to Gemini carries no maxItems): too many / too long answers are trimmed, never refused
     const known = new Set(input.existingSkills.map(value => value.trim().toLowerCase()));
     const deduped: string[] = [];
     const seen = new Set<string>();
     for (const raw of data.suggestedSkills) {
       const clean = raw.trim();
       const key = clean.toLowerCase();
-      if (!clean || known.has(key) || seen.has(key)) continue;
+      if (!clean || clean.length > 100 || known.has(key) || seen.has(key)) continue;
       seen.add(key);
       deduped.push(clean);
+      if (deduped.length === 12) break;
     }
+    if (!deduped.length) throw featureError("AI_NOT_ENOUGH_DATA", "لا توجد مهارات جديدة مقترحة لهذا التخصص.", 422);
     return { suggestedSkills: deduped };
   }
 }

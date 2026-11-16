@@ -2,6 +2,7 @@ import { ProjectPoolManager } from "./project-pool.manager.js";
 import { AiProviderError, SmartRouter } from "./smart-router.js";
 import type { DataClassification, InferenceResponse, ProjectManifest } from "./types.js";
 import { inferenceSignalStorage } from "./request-scope.js";
+import { errorFields, logFailure } from "../core/observability/failure-log.js";
 
 export interface OperationOptions { signal?: AbortSignal; deadlineMs?: number; attemptTimeoutMs?: number; maxAttempts?: number; estimatedTokens?: number; }
 export function deadlineSignal(options: OperationOptions = {}): { signal: AbortSignal; dispose(): void } {
@@ -70,7 +71,7 @@ export async function modelOperation<T>(models: readonly string[], classificatio
       const attempt = options.attemptTimeoutMs ? AbortSignal.timeout(options.attemptTimeoutMs) : undefined;
       const signal = attempt ? AbortSignal.any([deadline.signal, attempt]) : deadline.signal;
       try { const result = await work(choice.project, choice.model, signal, lease); signal.throwIfAborted(); return { result, model: choice.model, project: choice.project, hadFailedAttempts }; }
-      catch (error) { hadFailedAttempts = true; deadline.signal.throwIfAborted(); if (attempt?.aborted) excluded.add(`${choice.project.alias}:${choice.model}`); else if (!SmartRouter.handleFailure(choice.project, choice.model, error, excluded)) throw error; }
+      catch (error) { hadFailedAttempts = true; deadline.signal.throwIfAborted(); logFailure("provider_attempt_failed", { ...errorFields(error), model: choice.model, project: choice.project.alias, attempt: i + 1, timedOut: attempt?.aborted === true }); if (attempt?.aborted) excluded.add(`${choice.project.alias}:${choice.model}`); else if (!SmartRouter.handleFailure(choice.project, choice.model, error, excluded)) throw error; }
       finally { ProjectPoolManager.release(lease); }
     }
     throw new AiProviderError("AI_ATTEMPTS_EXHAUSTED");
