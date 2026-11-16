@@ -194,6 +194,30 @@ export function compareBirthDates(declared: string, extractedIso?: string | null
   return { status: "MISMATCH", reason: "BIRTH_DATE_MISMATCH" };
 }
 
+/**
+ * An Egyptian national ID number (14 digits) carries the birth date: C YYMMDD ... (C = 2 -> 19xx, 3 -> 20xx). The card prints that number clearly while the printed date is often
+ * partly covered by the emblem / hologram or read with day and month swapped, so a date the model could not read (or misread) is confirmed through the number when the DECLARED date
+ * equals the date inside the number read from the same card. A declared date that differs from the number's date stays a MISMATCH.
+ */
+export function birthDateFromEgyptianNationalId(raw: string | null | undefined): { year: number; month: number; day: number } | null {
+  const id = normalizeDigits(String(raw ?? "")).replace(/\D/g, "");
+  if (id.length !== 14) return null;
+  const century = id[0] === "2" ? 1900 : id[0] === "3" ? 2000 : null;
+  if (century === null) return null;
+  const year = century + Number(id.slice(1, 3)), month = Number(id.slice(3, 5)), day = Number(id.slice(5, 7));
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() === month - 1 && d.getUTCDate() === day ? { year, month, day } : null;
+}
+
+export function compareBirthDatesWithId(declared: string, extractedIso?: string | null, extractedRaw?: string | null, extractedNationalId?: string | null): { status: FieldCompareStatusA; reason?: string } {
+  const base = compareBirthDates(declared, extractedIso, extractedRaw);
+  if (base.status === "MATCH") return base;
+  const dec = parseIsoDateParts(declared), fromId = birthDateFromEgyptianNationalId(extractedNationalId);
+  if (dec && fromId && dec.year === fromId.year && dec.month === fromId.month && dec.day === fromId.day) return { status: "MATCH", reason: "CONFIRMED_BY_NATIONAL_ID_NUMBER" };
+  return base;
+}
+
 export function compareNationalIds(declared: string, extracted?: string | null): { status: FieldCompareStatusA; reason?: string } {
   const dec = normalizeNationalId(declared);
   if (!dec || dec.length < 4) return { status: "COULD_NOT_VERIFY", reason: "DECLARED_ID_INVALID" };
@@ -311,7 +335,7 @@ export class IdentityService {
       idRes = { status: "COULD_NOT_VERIFY", reason: "IMAGE_UNREADABLE" };
     } else {
       nameRes = compareNames(declaredName, extracted.fullNameAr, extracted.fullNameEn);
-      dobRes = compareBirthDates(declaredBirthDate, extracted.birthDateGregorianIso, extracted.birthDateRaw);
+      dobRes = compareBirthDatesWithId(declaredBirthDate, extracted.birthDateGregorianIso, extracted.birthDateRaw, extracted.nationalId);
       idRes = compareNationalIds(declaredNationalId, extracted.nationalId);
     }
 
@@ -401,7 +425,7 @@ export class IdentityService {
         if (fields.fullName === "MISMATCH") warningsAr.push("الاسم الظاهر في الوثيقة لا يطابق الاسم المدخل في الحساب.");
       }
       if (input.declared.birthDate?.trim() && (input.side === "FRONT" || extracted.birthDateGregorianIso || extracted.birthDateRaw)) {
-        fields.birthDate = compareBirthDates(input.declared.birthDate, extracted.birthDateGregorianIso, extracted.birthDateRaw).status;
+        fields.birthDate = compareBirthDatesWithId(input.declared.birthDate, extracted.birthDateGregorianIso, extracted.birthDateRaw, extracted.nationalId).status;
         if (fields.birthDate === "MISMATCH") warningsAr.push("تاريخ الميلاد الظاهر في الوثيقة لا يطابق التاريخ المدخل.");
       }
       if (input.declared.nationalId?.trim() && (input.side === "FRONT" || extracted.nationalId)) {
