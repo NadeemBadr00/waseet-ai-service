@@ -19,7 +19,7 @@ export async function providerFetch(project: ProjectManifest, path: string, body
   catch (error) { signal.throwIfAborted(); if (error instanceof TypeError) throw new AiProviderError("AI_PROVIDER_NETWORK", 503); throw error; }
   if (!response.ok) {
     let seconds = Number(response.headers.get("retry-after"));
-    if (!Number.isFinite(seconds) || seconds <= 0) { const date = Date.parse(response.headers.get("retry-after") || ""); seconds = Number.isFinite(date) ? Math.max(1, (date - Date.now()) / 1000) : response.status === 503 ? 3 : 60; /* a 503 without Retry-After is a momentary overload, not a quota window */ }
+    if (!Number.isFinite(seconds) || seconds <= 0) { const date = Date.parse(response.headers.get("retry-after") || ""); seconds = Number.isFinite(date) ? Math.max(1, (date - Date.now()) / 1000) : response.status === 503 ? 3 : response.status === 429 ? 15 : 60; /* a 503 without Retry-After is a momentary overload, not a quota window */ }
     await response.body?.cancel(); throw new AiProviderError(`AI_PROVIDER_HTTP_${response.status}`, response.status, seconds * 1000);
   }
   return response;
@@ -66,9 +66,9 @@ export async function modelOperation<T>(models: readonly string[], classificatio
     for (let i = 0; i < attempts; i++) {
       deadline.signal.throwIfAborted(); const choice = SmartRouter.selectForModels(models, classification, excluded);
       if (!choice) {
-        // a small pool (one paid key) has nothing else to switch to: a short vendor cooldown (e.g. a 503 for 5 s) is waited out, at most three times per request, instead of failing the request
+        // a small pool (one paid key) has nothing else to switch to: a short vendor cooldown (a 503 for 3 s, a per-minute 429 for 15 s) is waited out (<= 20 s, at most three times per request) instead of failing the request
         const wait = ProjectPoolManager.soonestRetryMs(models);
-        if (wait !== null && wait <= 8000 && waits < 3) {
+        if (wait !== null && wait <= 20000 && waits < 3) {
           waits++; await new Promise<void>(resolve => { const timer = setTimeout(resolve, wait + 50); deadline.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true }); });
           deadline.signal.throwIfAborted(); excluded.clear(); quotaHits.clear(); i--; continue;
         }
