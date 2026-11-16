@@ -30,3 +30,18 @@ test("a single quota refusal still tries another key of the same model", async (
   assert.equal(out.result, first);
   assert.equal(new Set(tried).size, 2);
 });
+
+// A pool with ONE key (the paid key) has nothing to switch to: a short vendor cooldown is waited out instead of failing the request.
+test("a single-key pool waits out a short cooldown and then succeeds", async () => {
+  const { fixtureProject } = await import("../helpers/ai-fixtures.js");
+  ProjectPoolManager.setProjectsForTesting([fixtureProject("only")]);
+  const [model] = SmartRouter.getCandidateModels("LIGHT", undefined, "low");
+  let calls = 0;
+  const started = Date.now();
+  const out = await modelOperation([model!], "SYNTHETIC", async () => {
+    calls++;
+    if (calls === 1) { ProjectPoolManager.recordRateLimit("only", model!, 1200); throw new AiProviderError("AI_PROVIDER_HTTP_503", 503, 1200); }
+    return "ok";
+  }, { maxAttempts: 4 });
+  assert.equal(out.result, "ok"); assert.equal(calls, 2); assert.ok(Date.now() - started >= 1000);
+});

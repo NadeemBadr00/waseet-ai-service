@@ -62,10 +62,18 @@ export function responseUsage(data: Record<string, unknown>): InferenceResponse[
 export async function modelOperation<T>(models: readonly string[], classification: DataClassification, work: (project: ProjectManifest, model: string, signal: AbortSignal, lease: string) => Promise<T>, options: OperationOptions = {}): Promise<{ result: T; model: string; project: ProjectManifest; hadFailedAttempts: boolean }> {
   const deadline = deadlineSignal(options), excluded = new Set<string>(), attempts = options.maxAttempts ?? 3;
   if (!Number.isInteger(attempts) || attempts < 1 || attempts > 8) { deadline.dispose(); throw new AiProviderError("AI_INVALID_ATTEMPTS", 400); }
-  let hadFailedAttempts = false; const quotaHits = new Map<string, number>(); try {
+  let hadFailedAttempts = false; const quotaHits = new Map<string, number>(); let waits = 0; try {
     for (let i = 0; i < attempts; i++) {
       deadline.signal.throwIfAborted(); const choice = SmartRouter.selectForModels(models, classification, excluded);
-      if (!choice) throw new AiProviderError(SmartRouter.isFreeEligible(classification) ? "AI_ROUTE_UNAVAILABLE" : "AI_DATA_POLICY_BLOCKED");
+      if (!choice) {
+        // a small pool (one paid key) has nothing else to switch to: a short vendor cooldown (e.g. a 503 for 5 s) is waited out, at most three times per request, instead of failing the request
+        const wait = ProjectPoolManager.soonestRetryMs(models);
+        if (wait !== null && wait <= 8000 && waits < 3) {
+          waits++; await new Promise<void>(resolve => { const timer = setTimeout(resolve, wait + 50); deadline.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true }); });
+          deadline.signal.throwIfAborted(); excluded.clear(); quotaHits.clear(); i--; continue;
+        }
+        throw new AiProviderError(SmartRouter.isFreeEligible(classification) || ProjectPoolManager.paidAllowed() ? "AI_ROUTE_UNAVAILABLE" : "AI_DATA_POLICY_BLOCKED");
+      }
       const lease = ProjectPoolManager.reserve(choice.project, choice.model, options.estimatedTokens ?? 0, (options.deadlineMs ?? 60000) + 5000);
       if (!lease) { excluded.add(`${choice.project.alias}:${choice.model}`); continue; }
       const attempt = options.attemptTimeoutMs ? AbortSignal.timeout(options.attemptTimeoutMs) : undefined;

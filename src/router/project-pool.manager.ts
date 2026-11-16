@@ -59,6 +59,17 @@ export class ProjectPoolManager {
     const row = this.db().prepare("SELECT until FROM gates WHERE scope=? AND model=?").get(this.scope(p), model) as { until: number } | undefined;
     return !row || row.until <= Date.now();
   }
+  /** The shortest wait (ms) until some enabled key can serve one of these models again (0 = one is free now; null = no usable key at all). Used to wait out a short vendor cooldown on a small pool. */
+  public static soonestRetryMs(models: readonly string[]): number | null {
+    const now = Date.now(); let best: number | null = null;
+    for (const p of this.getProjects().filter(p => p.enabled && p.apiKey)) for (const m of models) {
+      if (!p.supportedModels.includes(m)) continue;
+      const row = this.db().prepare("SELECT until FROM gates WHERE scope=? AND model=?").get(this.scope(p), m) as { until: number } | undefined;
+      const wait = row && row.until > now ? row.until - now : 0;
+      if (best === null || wait < best) best = wait;
+    }
+    return best;
+  }
   public static reserve(project: ProjectManifest, model: string, tokens = 0, leaseMs = 120000): string | null {
     const db = this.db(), now = Date.now(), scope = this.scope(project); db.exec("BEGIN IMMEDIATE");
     try {
