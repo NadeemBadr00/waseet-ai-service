@@ -45,3 +45,17 @@ test("a single-key pool waits out a short cooldown and then succeeds", async () 
   }, { maxAttempts: 4 });
   assert.equal(out.result, "ok"); assert.equal(calls, 2); assert.ok(Date.now() - started >= 1000);
 });
+
+// A 404 (this key cannot serve that model: gemini-2.5-* for a new key) is excluded for good; discovering it must not use up the request's attempts, otherwise a single 503 on the working
+// model left nothing to retry with (maxAttempts 3 and two 404 models in front of it).
+test("404 models do not consume attempts: a transient 503 on the good model is retried after the cooldown", async () => {
+  ProjectPoolManager.setProjectsForTesting([(await import("../helpers/ai-fixtures.js")).fixtureProject("only")]);
+  const [good, bad1, bad2] = SmartRouter.getCandidateModels("LIGHT", undefined, "low");
+  let goodCalls = 0;
+  const out = await modelOperation([good!, bad1!, bad2!], "SYNTHETIC", async (_p, model) => {
+    if (model !== good) throw new AiProviderError("AI_PROVIDER_HTTP_404", 404);
+    if (++goodCalls === 1) { ProjectPoolManager.recordRateLimit("only", model, 600); throw new AiProviderError("AI_PROVIDER_HTTP_503", 503, 600); }
+    return "ok";
+  }, { maxAttempts: 3 });
+  assert.equal(out.result, "ok"); assert.equal(goodCalls, 2);
+});
