@@ -1,3 +1,4 @@
+import { errorFields, logFailure } from "./core/observability/failure-log.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { TenantAuthService } from "./core/auth/tenant-auth.service.js";
 import { tenantStorage, assertPrivileged } from "./core/auth/tenant-context.js";
@@ -94,6 +95,7 @@ export function buildApp(): FastifyInstance {
     }
     const err = error as { statusCode?: number; code?: string; message?: string };
     const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
+    if (statusCode >= 500) logFailure("request_failed", { ...errorFields(error), method: _request.method, route: _request.url.split("?")[0], requestId: String(_request.headers["x-request-id"] ?? "").slice(0, 80) });
     return reply.status(statusCode).send({
       success: false,
       error: {

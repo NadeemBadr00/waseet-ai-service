@@ -26,7 +26,7 @@ export class SmartRouter {
     const e = err as { status?: number; statusCode?: number; retryAfterMs?: number; code?: string }, status = e.status ?? e.statusCode;
     if (e.code && !e.code.startsWith("AI_PROVIDER_HTTP_") && e.code !== "AI_AUTH_FAILED") return false;
     if (status === 401 || status === 403 || e.code === "AI_AUTH_FAILED") { ProjectPoolManager.blockAuthentication(project.alias); throw new AiProviderError("AI_AUTH_FAILED"); }
-    if (status === 404) { excluded.add(`404:${model}`); excluded.add(`${ProjectPoolManager.scope(project)}:${model}`); return true; }
+    if (status === 404) { excluded.add(`404:${model}`); excluded.add(`${ProjectPoolManager.scope(project)}:${model}`); ProjectPoolManager.recordRateLimit(project.alias, model, 6 * 3600_000); /* this key cannot use this model: later requests skip it instead of wasting an attempt on it */ return true; }
     if (status === 429 || status === 503) { ProjectPoolManager.recordRateLimit(project.alias, model, e.retryAfterMs ?? (status === 429 ? 60000 : 5000)); excluded.add(`${project.alias}:${model}`); return true; }
     return false;
   }

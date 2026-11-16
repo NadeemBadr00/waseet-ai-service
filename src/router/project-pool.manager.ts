@@ -46,7 +46,7 @@ export class ProjectPoolManager {
         tier: "FREE", enabled: !!apiKey, supportedModels, maxRpm: 15, maxTpm: 100000, freeConfirmed: process.env.WASEET_AI_FREE_CONFIRMED === "true" }));
       const legacyKeys = [...new Set([...(process.env.LLM_API_KEYS ?? "").split(/[\s,;]+/), process.env.LLM_API_KEY ?? ""].map(k => k.trim()).filter(Boolean))];
       for (const apiKey of legacyKeys) if (!this.projects.some(p => p.apiKey === apiKey)) this.projects.push({ alias: `legacy-gemini-${this.projects.length + 1}`, projectId: `waseet-gcp-pool-${this.projects.length + 1}`, apiKey, tier: "FREE", enabled: true, supportedModels, maxRpm: 15, maxTpm: 100000, freeConfirmed: process.env.WASEET_AI_FREE_CONFIRMED === "true" });
-      if (env.GEMINI_PAID_API_KEY) this.projects.push({ alias: "gemini-paid-primary", projectId: env.GEMINI_PAID_PROJECT_ID || "unverified", apiKey: env.GEMINI_PAID_API_KEY, tier: "PAID", enabled: this.paidAllowed(), supportedModels, maxRpm: 30, maxTpm: 100000 });
+      if (env.GEMINI_PAID_API_KEY) this.projects.push({ alias: "gemini-paid-primary", projectId: env.GEMINI_PAID_PROJECT_ID || "unverified", apiKey: env.GEMINI_PAID_API_KEY, tier: "PAID", enabled: this.paidAllowed(), supportedModels, maxRpm: 300, maxTpm: 2_000_000 }); // paid tier: the daily budget (WASEET_AI_PAID_DAILY_REQUEST_BUDGET) is the real limit; the free-tier caps (15 rpm / 100k tpm, 2 concurrent) would throttle the whole platform to one small key
     }
     return this.projects;
   }
@@ -59,6 +59,17 @@ export class ProjectPoolManager {
     const row = this.db().prepare("SELECT until FROM gates WHERE scope=? AND model=?").get(this.scope(p), model) as { until: number } | undefined;
     return !row || row.until <= Date.now();
   }
+  /** The shortest wait (ms) until some enabled key can serve one of these models again (0 = one is free now; null = no usable key at all). Used to wait out a short vendor cooldown on a small pool. */
+  public static soonestRetryMs(models: readonly string[]): number | null {
+    const now = Date.now(); let best: number | null = null;
+    for (const p of this.getProjects().filter(p => p.enabled && p.apiKey)) for (const m of models) {
+      if (!p.supportedModels.includes(m)) continue;
+      const row = this.db().prepare("SELECT until FROM gates WHERE scope=? AND model=?").get(this.scope(p), m) as { until: number } | undefined;
+      const wait = row && row.until > now ? row.until - now : 0;
+      if (best === null || wait < best) best = wait;
+    }
+    return best;
+  }
   public static reserve(project: ProjectManifest, model: string, tokens = 0, leaseMs = 120000): string | null {
     const db = this.db(), now = Date.now(), scope = this.scope(project); db.exec("BEGIN IMMEDIATE");
     try {
@@ -68,7 +79,7 @@ export class ProjectPoolManager {
       const active = db.prepare("SELECT COUNT(*) AS count FROM usage WHERE scope=? AND active=1").get(scope) as { count: number };
       const daily = db.prepare("SELECT COUNT(*) AS count FROM usage WHERE scope=? AND model=? AND at>?").get(scope, model, now - 86400000) as { count: number };
       const paid = db.prepare("SELECT COUNT(*) AS count FROM usage WHERE tier='PAID' AND at>?").get(now - 86400000) as { count: number };
-      if (counts.count >= project.maxRpm || counts.tokens + tokens > project.maxTpm || active.count >= 2 || (project.maxRpd && daily.count >= project.maxRpd) || (project.tier === "PAID" && paid.count >= Number(process.env.WASEET_AI_PAID_DAILY_REQUEST_BUDGET || 0))) { db.exec("COMMIT"); return null; }
+      if (counts.count >= project.maxRpm || counts.tokens + tokens > project.maxTpm || active.count >= (project.tier === "PAID" ? 16 : 2) || (project.maxRpd && daily.count >= project.maxRpd) || (project.tier === "PAID" && paid.count >= Number(process.env.WASEET_AI_PAID_DAILY_REQUEST_BUDGET || 0))) { db.exec("COMMIT"); return null; }
       const id = randomUUID(); db.prepare("INSERT INTO usage VALUES(?,?,?,?,?,?,?,?)").run(id, scope, model, now, tokens, 1, now + leaseMs, project.tier); db.exec("COMMIT"); return id;
     } catch (error) { db.exec("ROLLBACK"); throw error; }
   }

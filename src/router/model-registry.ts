@@ -2,10 +2,11 @@ import type { AgentRole, ModelCapability, ModelEffort, ModelTier } from "./types
 
 export const MODEL_POLICY_VERSION = "waseet-multiagents-free-2026-10-12-v1";
 export const MODEL_ROUTES: Readonly<Record<ModelEffort, readonly string[]>> = Object.freeze({
-  low: ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
-  medium: ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash"],
-  high: ["gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"],
-  xhigh: ["gemini-2.5-flash", "gemini-3.8-flash"], max: ["gemini-2.5-flash", "gemini-3.8-flash"],
+  // gemini-2.5-* is "no longer available to new users" (404 on keys created recently); gemini-3.5-flash-lite is served to every key and answers fast, so it is tried first / early
+  low: ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"],
+  medium: ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.8-flash"],
+  high: ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
+  xhigh: ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"], max: ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"],
 });
 export const TTS_MODELS = ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"] as const;
 export const MODEL_CAPABILITIES: Readonly<Record<string, readonly ModelCapability[]>> = Object.freeze({

@@ -31,8 +31,8 @@ const sse = (events: unknown[]) => new Response(events.map(value => `data: ${JSO
 const ttsInput = { text: "Synthetic greeting", model: "gemini-3.8-flash-lite-tts" as const, voice: "Puck" as const, dialect: "english" as const, speakingRate: "normal" as const, mimeType: "audio/wav" as const };
 
 test("frozen effort routes and reasoning adapters preserve model-specific semantics", () => {
-  assert.deepEqual(MODEL_ROUTES.low, ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash-lite"]);
-  assert.deepEqual(MODEL_ROUTES.max, ["gemini-2.5-flash", "gemini-3.8-flash"]);
+  assert.deepEqual(MODEL_ROUTES.low, ["gemini-3.5-flash-lite", "gemini-2.5-flash-lite", "gemini-2.5-flash"]);
+  assert.deepEqual(MODEL_ROUTES.max, ["gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash"]);
   assert.equal(reasoningConfig("gemini-2.5-flash", "high").thinkingBudget, 4096);
   assert.equal(reasoningConfig("gemini-3.8-flash", "max").thinkingLevel, "HIGH");
   assert.throws(() => reasoningConfig("gemini-3.8-flash", "low", "minimal"), /CAPABILITY_MISMATCH/);

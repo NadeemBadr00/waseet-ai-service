@@ -17,7 +17,7 @@ export class ProposalEnrichmentService {
       preferredModel: "gemini-2.5-flash",
       effort: "low",
       attemptTimeoutMs: 20000,
-      maxAttempts: 4,
+      maxAttempts: 8,
       classification: "PERSONAL",
       prompt: JSON.stringify(input),
       systemInstruction: "راجع نص العرض ومراحل التنفيذ والسعر والمدة المرسلة فقط. اكتب ملخص التقييم (aiFeedback.summary) باللغة العربية الفصحى الواضحة حصراً، ويُمنع كتابة الملخص باللغة الإنجليزية. لا تخترع ملفاً شخصياً أو نسبة مطابقة أو إثبات تسعير. أرجع qualityScore (من 0 إلى 100)، وaiQualityTag (إحدى القيم: Excellent أو Strong أو Average أو Needs Improvement حسب جودة العرض الفعلية)، وaiFeedback:{summary} باللغة العربية.",

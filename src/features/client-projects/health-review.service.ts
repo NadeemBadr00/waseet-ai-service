@@ -64,7 +64,12 @@ export class HealthReviewService {
 
     const data = await generateValidated({
       featureId: input.view === "client" ? "AI-19-DELIVERY-REVIEW-CLIENT" : "AI2-03-DELIVERY-REVIEW-PROVIDER",
-      modelTier: "HEAVY",
+      modelTier: "MEDIUM",
+      preferredModel: "gemini-2.5-flash",
+      effort: "medium",
+      attemptTimeoutMs: 25000,
+      deadlineMs: 120000,
+      maxAttempts: 8,
       classification: "SENSITIVE",
       ...(contents ? { contents } : {}),
       systemInstruction: "مراجعة استشارية فقط باللغة العربية الفصحى الواضحة دون أي رموز برمجية أو أكواد خطأ إنجليزية. قارن متطلبات criteria الحرفية بملاحظة التسليم والمحتوى المقروء (من ملفات الكود أو الأرشيف أو المستندات) وأي صور مرفقة تراها بصرياً. إذا كانت المرفقات صوراً لا تتعلق بالمتطلب أو مجرد لقطة شاشة بينما المرحلة تتطلب كوداً برمجياً أو ملفات مصدرية أو مستندات فنية، وضّح محتوى الصورة الفعلي واذكر عدم التطابق صراحة في summary وpotentialGaps وquestionsForReviewer. لا تقرر قبولاً أو دفعاً ولا تدعي تشغيل الكود. أرجع summary,met[{requirement,evidence,source}],potentialGaps,questionsForReviewer. يجب أن يطابق requirement نص أحد عناصر criteria حرفياً، ويكون source إما 'delivery-note' للملاحظة أو أحد source النصية المرسلة، ويكون evidence اقتباساً حرفياً من ذلك المصدر (لا تضع صوراً غير نصية داخل met).",
@@ -87,9 +92,8 @@ export class HealthReviewService {
 
     const verifiedMet: typeof data.met = [];
     for (const met of data.met) {
-      if (!criteria.includes(met.requirement)) {
-        throw featureError("AI_UNGROUNDED_OUTPUT", "تحتوي المراجعة على متطلب أو اقتباس غير موثق.");
-      }
+      // a requirement the model re-worded (or invented) is NOT evidence: it is skipped (and the real requirement then shows as "غير موثق"), never a reason to fail the whole review
+      if (!criteria.includes(met.requirement)) continue;
       const rawExcerpt = met.source === "delivery-note" ? note : inspection.evidence.find(item => item.source === met.source)?.excerpt;
       if (!rawExcerpt) continue;
       if (rawExcerpt.includes(met.evidence) || normalizeWhitespace(rawExcerpt).includes(normalizeWhitespace(met.evidence))) {
