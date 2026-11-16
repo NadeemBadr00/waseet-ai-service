@@ -225,7 +225,7 @@ export class IdentityService {
       classification: "SENSITIVE",
       maxOutputTokens: 1200,
       attemptTimeoutMs: 25000,
-      maxAttempts: 6,
+      maxAttempts: 8,
       signal,
       contents: [
         {

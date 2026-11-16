@@ -80,7 +80,7 @@ describe("Factual evidence, tenant isolation and expiring identity",()=>{
    GeminiGateway.setMockHandler(async()=>JSON.stringify({answer:"invented",citations:[{documentId:"ground",quote:"fake fee"}]}));await assert.rejects(async()=>{for await(const _ of HelpService.askStream({question:"الأمان",mode:"policy",history:[]})){}},{code:"AI_UNGROUNDED_OUTPUT"});
   });
   GeminiGateway.setMockHandler(async()=>JSON.stringify({summary:"review",met:[{requirement:"invented",source:"delivery-note",evidence:"note"}],potentialGaps:[],questionsForReviewer:[]}));
-  await assert.rejects(()=>HealthReviewService.reviewDelivery({view:"client",projectId:"p",stageId:"s",scopeAgreed:"actual",submissionDetails:"note",deliverableLinks:[],requirements:["actual"]}),{code:"AI_UNGROUNDED_OUTPUT"});
+  { const out=await HealthReviewService.reviewDelivery({view:"client",projectId:"p",stageId:"s",scopeAgreed:"actual",submissionDetails:"note",deliverableLinks:[],requirements:["actual"]}); assert.deepEqual(out.met,[]); assert.deepEqual(out.alignedPoints,[]); assert.ok(out.potentialGaps.includes("غير موثق: actual")); }
   GeminiGateway.setMockHandler(async()=>JSON.stringify({suggestedBio:"متخصص بخبرة ٢ سنوات."}));
   await assert.rejects(()=>ProfileMetricsService.suggestBio({providerId:"p",specialties:["تصميم"],yearsOfExperience:20,keyAchievements:[],maxLength:500}),{code:"AI_UNGROUNDED_OUTPUT"});
  });

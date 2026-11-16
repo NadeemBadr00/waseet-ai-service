@@ -27,7 +27,7 @@ function simplifySchemaForGemini(value: unknown): unknown {
   return out;
 }
 export async function generateValidated<T>(request: InferenceRequest, schema: ZodType<T>): Promise<T> {
-  const response = await GeminiGateway.generate({ maxOutputTokens: 4096, preferredModel: "gemini-2.5-flash", attemptTimeoutMs: 25000, maxAttempts: 4, ...request, signal: request.signal ?? getTenantContext()?.signal, responseJsonSchema: simplifySchemaForGemini(z.toJSONSchema(schema)) as Record<string, unknown> });
+  const response = await GeminiGateway.generate({ maxOutputTokens: 4096, preferredModel: "gemini-2.5-flash", attemptTimeoutMs: 25000, maxAttempts: 8, ...request, signal: request.signal ?? getTenantContext()?.signal, responseJsonSchema: simplifySchemaForGemini(z.toJSONSchema(schema)) as Record<string, unknown> });
   return parseModelOutput(response.text, schema);
 }
 export const scoreSchema = z.number().finite().min(0).max(100);
