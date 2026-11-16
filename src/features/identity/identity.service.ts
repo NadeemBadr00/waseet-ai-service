@@ -15,10 +15,28 @@ import type {
 
 const MAX_DECODED_ID_BYTES = 6 * 1024 * 1024;
 
+export const DOCUMENT_KINDS = ["NATIONAL_ID", "PASSPORT", "RESIDENCE_PERMIT", "DRIVING_LICENCE", "OTHER", "UNKNOWN"] as const;
+export type DocumentKind = (typeof DOCUMENT_KINDS)[number];
+const KIND_LABEL_AR: Record<DocumentKind, string> = { NATIONAL_ID: "بطاقة هوية وطنية", PASSPORT: "جواز سفر", RESIDENCE_PERMIT: "إقامة", DRIVING_LICENCE: "رخصة قيادة", OTHER: "وثيقة أخرى", UNKNOWN: "غير محدد" };
+/** The kind the user chose (the app's codes, either spelling of licence) as a DocumentKind; anything else is "not stated". */
+export function expectedKindOf(type: string | undefined): DocumentKind | null {
+  const t = (type ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (t === "NATIONAL_ID" || t === "ID_CARD" || t === "NATIONAL_IDENTITY_CARD") return "NATIONAL_ID";
+  if (t === "PASSPORT") return "PASSPORT";
+  if (t === "RESIDENCE_PERMIT" || t === "IQAMA" || t === "RESIDENCY") return "RESIDENCE_PERMIT";
+  if (t === "DRIVING_LICENCE" || t === "DRIVING_LICENSE" || t === "DRIVER_LICENSE") return "DRIVING_LICENCE";
+  return null;
+}
+/** A documented mismatch only: the model must have named a SPECIFIC kind (not UNKNOWN / OTHER-unsure) that differs from the chosen one. */
+export function documentKindMismatch(expected: DocumentKind | null, detected: DocumentKind | undefined): boolean {
+  return !!expected && !!detected && detected !== "UNKNOWN" && detected !== expected;
+}
+
 const ocrSchema = z.object({
   isIdentityDocument: z.boolean(),
   detectedSide: z.enum(["FRONT", "BACK", "UNKNOWN"]).catch("UNKNOWN"),
   readability: z.enum(["CLEAR", "BLURRY", "PARTIAL", "UNREADABLE"]).catch("UNREADABLE"),
+  documentKind: z.enum(DOCUMENT_KINDS).catch("UNKNOWN").optional(),
   fullNameAr: z.string().max(300).nullable().optional(),
   fullNameEn: z.string().max(300).nullable().optional(),
   birthDateGregorianIso: z.string().max(40).nullable().optional(),
@@ -206,6 +224,7 @@ export class IdentityService {
         isIdentityDocument: { type: "boolean" },
         detectedSide: { type: "string", enum: ["FRONT", "BACK", "UNKNOWN"] },
         readability: { type: "string", enum: ["CLEAR", "BLURRY", "PARTIAL", "UNREADABLE"] },
+        documentKind: { type: "string", enum: [...DOCUMENT_KINDS] },
         fullNameAr: { type: "string", nullable: true },
         fullNameEn: { type: "string", nullable: true },
         birthDateGregorianIso: { type: "string", nullable: true },
@@ -240,7 +259,8 @@ export class IdentityService {
         "2. حدد detectedSide: 'FRONT' إذا ظهر الوجه الأمامي للبطاقة (الصورة الشخصية والاسم ورقم الهوية)، أو 'BACK' إذا ظهر الوجه الخلفي (الباركود أو MRZ أو بيانات الإصدار الخلفية فقط)، أو 'UNKNOWN' إذا لم تكن وثيقة هوية.",
         "3. حدد readability: 'CLEAR' إذا كانت النصوص مقروءة بوضوح، 'BLURRY' إذا كانت مشوشة أو معتمة، 'PARTIAL' إذا كانت مقطوعة جزئياً، 'UNREADABLE' إذا تعذرت قراءتها.",
         "4. استخرج الحقول المرئية فقط كما هي مطبوعة دون تخمين: fullNameAr (الاسم الكامل بالعربية إن وُجد)، fullNameEn (الاسم بالإنجليزية إن وُجد)، birthDateGregorianIso (تاريخ الميلاد الميلادي بصيغة YYYY-MM-DD إن وُجد كـ ميلادي)، birthDateRaw (تاريخ الميلاد كما كُتب نصياً)، nationalId (رقم الهوية/الإقامة/الجواز بالأرقام اللاتينية 0-9).",
-        "5. اكتب summaryAr باللغة العربية الفصحى الواضحة وwarningsAr لأي ملاحظات جودة أو عدم تطابق (دون ذكر أي أرقام سرية كاملة في summaryAr).",
+        "5. حدد documentKind بنوع الوثيقة الفعلي كما تراه في الصورة: NATIONAL_ID (بطاقة هوية وطنية / بطاقة تحقيق شخصية)، PASSPORT (جواز سفر بصفحة البيانات و MRZ)، RESIDENCE_PERMIT (إقامة)، DRIVING_LICENCE (رخصة قيادة)، OTHER (وثيقة أخرى رسمية)، أو UNKNOWN إذا لم تستطع التحديد بثقة. لا تتأثر بنوع الوثيقة المتوقع في المدخلات؛ صف ما تراه فقط.",
+        "6. اكتب summaryAr باللغة العربية الفصحى الواضحة وwarningsAr لأي ملاحظات جودة أو عدم تطابق (دون ذكر أي أرقام سرية كاملة في summaryAr).",
       ].join("\n"),
       prompt: JSON.stringify({
         expectedDocumentCountry: meta.country ?? null,
@@ -370,6 +390,10 @@ export class IdentityService {
       );
     }
 
+    const expectedKind = expectedKindOf(input.document?.type);
+    const kindMismatch = documentKindMismatch(expectedKind, extracted.documentKind);
+    if (kindMismatch) warningsAr.unshift(`الوثيقة المرفوعة تبدو ${KIND_LABEL_AR[extracted.documentKind as DocumentKind]} بينما النوع المختار هو ${KIND_LABEL_AR[expectedKind as DocumentKind]}. اختر النوع الصحيح أو ارفع الوثيقة المطلوبة.`);
+
     const fields: IdentityInspectOutput["fields"] = {};
     if (input.declared) {
       if (input.declared.fullName?.trim() && (input.side === "FRONT" || extracted.fullNameAr || extracted.fullNameEn)) {
@@ -387,7 +411,7 @@ export class IdentityService {
     }
 
     const hasMismatch = Object.values(fields).includes("MISMATCH");
-    const needsAttention = !sideMatchesExpected || extracted.readability === "BLURRY" || extracted.readability === "PARTIAL" || hasMismatch;
+    const needsAttention = !sideMatchesExpected || kindMismatch || extracted.readability === "BLURRY" || extracted.readability === "PARTIAL" || hasMismatch;
 
     const defaultSummary = needsAttention
       ? "تم فحص الوثيقة مبدئياً وتوجد ملاحظات تحتاج انتباهك قبل إرسالها للمراجعة."
@@ -404,6 +428,8 @@ export class IdentityService {
       summaryAr: extracted.summaryAr?.trim() || defaultSummary,
       warningsAr,
       ...(Object.keys(fields).length > 0 ? { fields } : {}),
+      ...(extracted.documentKind ? { documentKind: extracted.documentKind } : {}),
+      ...(expectedKind && extracted.documentKind && extracted.documentKind !== "UNKNOWN" ? { documentTypeMatches: !kindMismatch } : {}),
       advisoryOnly: true,
     };
   }
