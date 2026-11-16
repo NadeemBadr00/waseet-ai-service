@@ -60,9 +60,9 @@ export function responseUsage(data: Record<string, unknown>): InferenceResponse[
   return { promptTokens: input as number, completionTokens: output as number, totalTokens: total as number };
 }
 export async function modelOperation<T>(models: readonly string[], classification: DataClassification, work: (project: ProjectManifest, model: string, signal: AbortSignal, lease: string) => Promise<T>, options: OperationOptions = {}): Promise<{ result: T; model: string; project: ProjectManifest; hadFailedAttempts: boolean }> {
-  const deadline = deadlineSignal(options), excluded = new Set<string>(), attempts = options.maxAttempts ?? 3;
+  const deadline = deadlineSignal(options), excluded = new Set<string>(), attempts = options.maxAttempts ?? 6;
   if (!Number.isInteger(attempts) || attempts < 1 || attempts > 8) { deadline.dispose(); throw new AiProviderError("AI_INVALID_ATTEMPTS", 400); }
-  let hadFailedAttempts = false; const quotaHits = new Map<string, number>(); let waits = 0; try {
+  let hadFailedAttempts = false; const quotaHits = new Map<string, number>(); let waits = 0, notAvailable = 0; try {
     for (let i = 0; i < attempts; i++) {
       deadline.signal.throwIfAborted(); const choice = SmartRouter.selectForModels(models, classification, excluded);
       if (!choice) {
@@ -79,7 +79,7 @@ export async function modelOperation<T>(models: readonly string[], classificatio
       const attempt = options.attemptTimeoutMs ? AbortSignal.timeout(options.attemptTimeoutMs) : undefined;
       const signal = attempt ? AbortSignal.any([deadline.signal, attempt]) : deadline.signal;
       try { const result = await work(choice.project, choice.model, signal, lease); signal.throwIfAborted(); return { result, model: choice.model, project: choice.project, hadFailedAttempts }; }
-      catch (error) { hadFailedAttempts = true; deadline.signal.throwIfAborted(); logFailure("provider_attempt_failed", { ...errorFields(error), model: choice.model, project: choice.project.alias, attempt: i + 1, timedOut: attempt?.aborted === true }); if (attempt?.aborted) excluded.add(`${choice.project.alias}:${choice.model}`); else if (!SmartRouter.handleFailure(choice.project, choice.model, error, excluded)) throw error; else if ((error as { status?: number }).status === 429 && (quotaHits.set(choice.model, (quotaHits.get(choice.model) ?? 0) + 1).get(choice.model) ?? 0) >= 2) for (const p of ProjectPoolManager.getProjects()) excluded.add(`${p.alias}:${choice.model}`); /* two quota refusals for one model in this request: the model is out of quota across the pool, move to the next model instead of spending the remaining attempts on it */ }
+      catch (error) { hadFailedAttempts = true; deadline.signal.throwIfAborted(); logFailure("provider_attempt_failed", { ...errorFields(error), model: choice.model, project: choice.project.alias, attempt: i + 1, timedOut: attempt?.aborted === true }); const modelNotAvailable = (error as { status?: number }).status === 404; if (attempt?.aborted) excluded.add(`${choice.project.alias}:${choice.model}`); else if (!SmartRouter.handleFailure(choice.project, choice.model, error, excluded)) throw error; else if ((error as { status?: number }).status === 429 && (quotaHits.set(choice.model, (quotaHits.get(choice.model) ?? 0) + 1).get(choice.model) ?? 0) >= 2) for (const p of ProjectPoolManager.getProjects()) excluded.add(`${p.alias}:${choice.model}`); /* two quota refusals for one model in this request: the model is out of quota across the pool, move to the next model instead of spending the remaining attempts on it */ if (modelNotAvailable && notAvailable++ < 12) i--; /* a key that cannot serve a model (404) is excluded for good: finding that out is not a retry of the request */ }
       finally { ProjectPoolManager.release(lease); }
     }
     throw new AiProviderError("AI_ATTEMPTS_EXHAUSTED");
